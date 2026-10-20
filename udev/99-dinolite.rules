@@ -1,0 +1,2 @@
+# Let plugdev users send USB control requests to Dino-Lite (LED on/off)
+SUBSYSTEM=="usb", ATTR{idVendor}=="a168", MODE="0664", GROUP="plugdev"

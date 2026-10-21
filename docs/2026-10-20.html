@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jenga Vision 진행 상황</title>
+<style>
+:root {
+  --bg: #f7f6f2; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a64; --line: #e3e1d9;
+  --good: #1f7a4d; --good-bg: #e3f3ea; --bad: #b3362b; --bad-bg: #f8e4e1;
+  --accent: #8a5a1c; --accent-bg: #f4ead9; --bar: #c99a57;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614; --card: #201f1c; --ink: #ecebe6; --muted: #a09e95; --line: #34322d;
+    --good: #5cc28e; --good-bg: #17301f; --bad: #e9786c; --bad-bg: #3a1d19;
+    --accent: #e0b070; --accent-bg: #33281a; --bar: #b8884a;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.6 -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif; }
+main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+header .date { color: var(--muted); font-size: 13px; letter-spacing: .04em; }
+h1 { font-size: 28px; margin: 4px 0 8px; letter-spacing: -.01em; }
+h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+p.lead { color: var(--muted); margin: 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 24px; }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.kpi .v { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+.kpi .l { color: var(--muted); font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+ol.steps { margin: 0; padding-left: 20px; }
+ol.steps li { margin: 6px 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.hi td { background: var(--accent-bg); font-weight: 600; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.ok { background: var(--good-bg); color: var(--good); }
+.no { background: var(--bad-bg); color: var(--bad); }
+.bars { display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: center; font-size: 13.5px; }
+.bar-track { background: var(--line); border-radius: 4px; height: 22px; position: relative; }
+.bar { height: 100%; border-radius: 4px; background: var(--bar); display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; color: #fff; font-weight: 700; font-size: 12.5px; }
+.bar.old { background: var(--muted); opacity: .55; }
+.goal-line { position: absolute; top: -4px; bottom: -4px; border-left: 2px dashed var(--accent); }
+.legend { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+ul.check { list-style: none; padding: 0; margin: 0; }
+ul.check li { padding: 5px 0 5px 24px; position: relative; }
+ul.check li::before { position: absolute; left: 0; font-weight: 700; }
+ul.done li::before { content: "✓"; color: var(--good); }
+ul.todo li::before { content: "→"; color: var(--accent); }
+.note { border-left: 3px solid var(--accent); background: var(--accent-bg); padding: 10px 14px; border-radius: 0 8px 8px 0; margin-top: 12px; font-size: 14px; }
+code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--accent-bg); padding: 1px 5px; border-radius: 4px; }
+footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+@media (max-width: 480px) { .bar-row { grid-template-columns: 96px 1fr; } h1 { font-size: 23px; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="date">CES2027 · ROBOT HAND JENGA · 2026-10-20</div>
+  <h1>Jenga Vision 진행 상황</h1>
+  <p class="lead">Dino-Lite 현미경 카메라로 새로 쌓은 젠가 탑을 한 번 스캔해서, 로봇이 뽑을 사이드 블록의 순위를 매긴다.</p>
+</header>
+
+<section class="kpis">
+  <div class="kpi"><div class="v">12 · 7 · 7</div><div class="l">사이드 연속 성공 (스캔 3번, 사후 계산)</div></div>
+  <div class="kpi"><div class="v">18 / 18</div><div class="l">SURE(층 점수 16px 이상) 정답, 스캔 3번 합계</div></div>
+  <div class="kpi"><div class="v">2 px</div><div class="l">같은 탑 재스캔 평균 차이</div></div>
+  <div class="kpi"><div class="v">93 장</div><div class="l">탑 하나 전체 스캔 (2~16층)</div></div>
+</section>
+
+<h2>게임 전략</h2>
+<div class="card">
+  <ol class="steps">
+    <li><b>사이드 단계:</b> 로봇은 사이드(바깥) 블록만 순위대로 뽑는다. 목표는 <b>7~8개를 한 번도 틀리지 않는 것</b>이고, 최소 4개다.</li>
+    <li><b>가운데 단계:</b> 세 블록이 다 남은 층의 가운데만 후보다. 사이드 4~8개를 뺀 뒤라면 약 <b>60~70%</b> 확률이고, 여기부터는 져도 된다.</li>
+    <li>로봇이 살짝 밀어보며 힘으로 판정하는 방식은 최후의 수단이다. <b>카메라만으로 해결</b>하는 것이 목표다.</li>
+  </ol>
+</div>
+
+<h2>현재 알고리즘</h2>
+<div class="card">
+  <ol class="steps">
+    <li><b>블록 점수:</b> 사이드 블록의 위쪽 엣지를 왼쪽 / 가운데 / 오른쪽 3장 찍는다. 각 사진에서 <b>새까만 틈의 두께(px)</b>를 재고 3개의 중앙값을 쓴다. LED는 끄고, 배율은 50, 캡은 밀착한다.</li>
+    <li><b>층 점수:</b> 같은 층 사이드 두 개 중 큰 값을 쓴다.</li>
+    <li><b>순서:</b> 층 점수가 높은 층부터 <b>그 층의 사이드 두 개를 연달아</b> 뽑는다. 동점이면 짝 점수가 큰 층, 그것도 같으면 위층이 먼저다.</li>
+    <li><b>SURE:</b> 층 점수 16px 이상. 순서는 바꾸지 않고 "여기까지는 확실하다"는 표시로만 쓴다.</li>
+  </ol>
+  <div class="note">층 순서가 효과가 있는 이유: 틈이 크게 벌어진 층은 사이드 두 개가 같이 easy였다. 그래서 한쪽 점수가 애매해도 짝이 확실하면 같이 앞으로 온다. 예: L12는 P1 26px, P3 13.5px였고 둘 다 easy.</div>
+</div>
+
+<h2>사이드 연속 성공 (처음 hard가 나오기 전까지)</h2>
+<div class="card">
+  <div class="bars">
+    <div class="bar-row"><span>첫 탑 · 예전</span><div class="bar-track"><div class="bar old" style="width:58%">7</div><div class="goal-line" style="left:58%"></div></div></div>
+    <div class="bar-row"><span><b>첫 탑 · 현재</b></span><div class="bar-track"><div class="bar" style="width:100%">12</div><div class="goal-line" style="left:58%"></div></div></div>
+    <div class="bar-row"><span>둘째 탑 1차 · 예전</span><div class="bar-track"><div class="bar old" style="width:25%">3~5</div><div class="goal-line" style="left:58%"></div></div></div>
+    <div class="bar-row"><span><b>둘째 탑 1차 · 현재</b></span><div class="bar-track"><div class="bar" style="width:58%">7</div><div class="goal-line" style="left:58%"></div></div></div>
+    <div class="bar-row"><span>둘째 탑 2차 · 예전</span><div class="bar-track"><div class="bar old" style="width:25%">3</div><div class="goal-line" style="left:58%"></div></div></div>
+    <div class="bar-row"><span><b>둘째 탑 2차 · 현재</b></span><div class="bar-track"><div class="bar" style="width:58%">7</div><div class="goal-line" style="left:58%"></div></div></div>
+  </div>
+  <div class="legend">예전 = 블록 점수 순서 · 현재 = 층 순서 + 동점 처리 · 점선 = 목표 7개</div>
+  <div class="note">⚠️ 정답을 알고 있는 같은 데이터를 보고 고른 방식이라 실제보다 좋게 나왔을 수 있다. <b>새 탑 블라인드 검증</b>이 다음 단계다.</div>
+</div>
+
+<h2>3구간을 합치는 방법별 비교</h2>
+<div class="card scroll">
+  <table>
+    <thead><tr><th>합치는 방법</th><th>순서</th><th class="num">첫 탑</th><th class="num">둘째 탑 1차</th><th class="num">둘째 탑 2차</th></tr></thead>
+    <tbody>
+      <tr><td>최솟값</td><td>층</td><td class="num">10~11</td><td class="num">5</td><td class="num">4~5</td></tr>
+      <tr class="hi"><td>중앙값 (현재)</td><td>층 + 동점 처리</td><td class="num">12</td><td class="num">7</td><td class="num">7</td></tr>
+      <tr><td>평균</td><td>층</td><td class="num">12</td><td class="num">7</td><td class="num">6</td></tr>
+      <tr><td>최댓값</td><td>층</td><td class="num">12</td><td class="num">6</td><td class="num">4</td></tr>
+      <tr><td>중앙값</td><td>블록</td><td class="num">7</td><td class="num">3~5</td><td class="num">3</td></tr>
+    </tbody>
+  </table>
+  <div class="legend">"a~b" = 동점 블록을 어떤 순서로 뽑느냐에 따른 범위</div>
+</div>
+
+<h2>탑마다 다르다</h2>
+<div class="cols">
+  <div class="card">
+    <b>첫 탑</b>
+    <p>easy의 틈 중앙값 <b>16.5px</b>. SURE 12개, 12/12 정답.</p>
+  </div>
+  <div class="card">
+    <b>둘째 탑 (빡빡함)</b>
+    <p>easy의 틈 중앙값 <b>11.5px</b>로 hard(약 10px)와 겹친다. SURE 2~4개, 전부 정답.</p>
+  </div>
+</div>
+<div class="note">사진 조건은 같았다. 재스캔 상관계수 0.79, 정답 재확인 28/30 일치. 측정 흔들림보다는 <b>탑 자체의 차이</b>로 보인다.</div>
+
+<h2>시도했다가 버린 방식</h2>
+<div class="card scroll">
+  <table>
+    <thead><tr><th>방식</th><th>결과</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>끝면 정면 + LED 어두움 점수</td><td>실전 3/7, 그림자와 틈 구분 못함</td><td><span class="tag no">버림</span></td></tr>
+      <tr><td>핸드폰 백라이트</td><td>위/아래 엣지로 빛이 안 샘</td><td><span class="tag no">버림</span></td></tr>
+      <tr><td>아래쪽 엣지</td><td>도움 안 됨</td><td><span class="tag no">버림</span></td></tr>
+      <tr><td>가운데 블록 끝면 직접 측정</td><td>easy 0~12px, hard 0~13px</td><td><span class="tag no">버림</span></td></tr>
+      <tr><td>사이드 점수로 가운데 추론</td><td>둘째 탑 8/12 (기본 확률 60%)</td><td><span class="tag no">버림</span></td></tr>
+      <tr><td><b>긴 면 위쪽 엣지 + LED 끔 + 층 순서</b></td><td>12 · 7 · 7 연속</td><td><span class="tag ok">사용 중</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>가운데 블록: 사이드 n개를 뺀 뒤 easy일 확률</h2>
+<div class="card scroll">
+  <table>
+    <thead><tr><th>뺀 사이드</th><th class="num">첫 탑</th><th class="num">둘째 탑</th><th class="num">대략</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td class="num">40%</td><td class="num">60%</td><td class="num">50%</td></tr>
+      <tr><td>4</td><td class="num">52~55%</td><td class="num">64~69%</td><td class="num">60%</td></tr>
+      <tr><td>6</td><td class="num">58~67%</td><td class="num">70~74%</td><td class="num">67%</td></tr>
+      <tr class="hi"><td>8</td><td class="num">63~67%</td><td class="num">70~79%</td><td class="num">70%</td></tr>
+    </tbody>
+  </table>
+  <div class="legend">세 블록이 다 남은 층의 가운데를 골랐을 때 (실제 정답 기반 시뮬레이션)</div>
+</div>
+
+<h2>달성 / 다음 목표</h2>
+<div class="cols">
+  <div class="card">
+    <b>달성</b>
+    <ul class="check done">
+      <li>Dino LED 끄기 (리눅스, raw USB 명령)</li>
+      <li>위쪽 엣지 틈 측정 (새까만 코어 폭)</li>
+      <li>안내형 전체 스캔 툴 <code>jenga-tower</code></li>
+      <li>층 순서 정렬 → 12 · 7 · 7 연속</li>
+      <li>SURE 오답 0 (18개)</li>
+      <li>재스캔 반복성 확인 (2px)</li>
+      <li>층별 분석 툴 <code>jenga-layers</code></li>
+    </ul>
+  </div>
+  <div class="card">
+    <b>다음</b>
+    <ul class="check todo">
+      <li><b>새 탑 블라인드 검증</b> (탑 3개 이상, 목표 7~8연속)</li>
+      <li>빡빡한 탑 대응: 5구간 촬영, 2회 스캔 평균, 다른 단서</li>
+      <li>사이드에서 가운데로 넘어가는 시점 정하기</li>
+      <li>로봇 이식: 캡 밀착, 평행 맞추기, 면 번호 보장</li>
+      <li>시연장 조명 (보류)</li>
+    </ul>
+  </div>
+</div>
+
+<footer>상세 내용: <code>docs/progress_2026-10-20.md</code></footer>
+</main>
+</body>
+</html>

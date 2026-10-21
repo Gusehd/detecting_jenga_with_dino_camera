@@ -10,9 +10,18 @@ long block above. The two ends of a layer sit under different blocks of the
 layer above, so gaps are only compared within one end:
     middle score = gM - (gL + gR) / 2      (> 0: the middle floats)
     outer score  = g_outer - gM            (> 0: that outer floats)
---report prints the ranking (score desc, ties -> upper layer) for several
-ways to use the ends: near end only (faces 1/2), far end only (faces 3/4),
-mean of both ends, min of both ends, plus how often the two ends agree.
+A block's score combines both ends with --mode (default mean; min, max, near =
+faces 1/2 only, far = faces 3/4 only). Blocks are ranked by score, ties ->
+upper layer. On tower 2026-10-21 (all 45 pushed) mean gave 19 easy in a row,
+min 15, max 14, near 13, far 7. --report prints every mode side by side and
+how often the two ends agree.
+
+Check phase (--check):
+  pull (default)  play test: pull blocks out in ranking order and put them on
+                  top like in a game; e = came out, h = would not (leave it).
+                  Blocks that would leave a lone outer in their layer are
+                  skipped. Results go to pulls.csv.
+  push            push all 45 blocks layer by layer without pulling (labels).
 
 Face 1 = the side where layer --first shows its three end faces. Turn the
 tower clockwise (seen from above), 90 degrees per face. Block names in files
@@ -47,7 +56,7 @@ SIDE_PERCENTILE = 25  # of the strip widths; leftover corner rounding only widen
 MEASURE_SPAN = (0.2, 0.8)  # fraction of the frame width measured (center of the end face)
 GREEN, RED, YELLOW, WHITE, CYAN = (0, 200, 0), (0, 0, 255), (0, 255, 255), (255, 255, 255), (255, 255, 0)
 BLOCKS = ("left", "middle", "right")  # as seen from the layer's first face
-METHODS = ("near", "far", "mean", "min")
+METHODS = ("mean", "min", "max", "near", "far")  # first = default --mode
 
 
 @dataclass
@@ -134,7 +143,7 @@ def block_scores(shots: dict[str, float], layer: int, first: int, method: str) -
         return far
     if not near or not far:
         return near or far
-    comb = np.mean if method == "mean" else min
+    comb = {"mean": np.mean, "min": min, "max": max}[method]
     return {b: float(comb([near[b], far[b]])) for b in BLOCKS}
 
 
@@ -203,6 +212,8 @@ def main() -> None:
     parser.add_argument("--first", type=int, default=2, help="lowest layer to test")
     parser.add_argument("--last", type=int, default=16, help="highest layer to test (needs a layer above it)")
     parser.add_argument("--resume", type=Path, default=None)
+    parser.add_argument("--mode", choices=METHODS, default=METHODS[0], help="how the two ends are combined")
+    parser.add_argument("--check", choices=("pull", "push"), default="pull", help="check phase, see above")
     parser.add_argument("--report", action="store_true", help="no camera: print the rankings of --resume")
     args = parser.parse_args()
 
@@ -222,8 +233,56 @@ def main() -> None:
         with result_csv.open() as f:
             results = {f"{r['layer']}:{r['block']}": r["actual"] for r in csv.DictReader(f) if r["actual"]}
 
+    def order() -> list[tuple[float, int, str]]:
+        return ranking(shots, layers, args.first, args.mode)
+
+    def next_pull() -> tuple[int, float, int, str] | None:
+        """(rank, score, layer, block) of the next block to try; skips lone-outer pulls."""
+        tried = {k for k, _ in pulls}
+        out = {k for k, r in pulls if r == "easy"}
+        for rank, (sc, layer, b) in enumerate(order(), 1):
+            k = f"{layer}:{b}"
+            if k in tried:
+                continue
+            left = {x for x in BLOCKS if f"{layer}:{x}" not in out} - {b}
+            if left in ({"left"}, {"right"}):  # a single outer would carry the tower
+                continue
+            return rank, sc, layer, b
+        return None
+
+    def save_pulls() -> None:
+        scores = {f"{lay}:{b}": (n, sc) for n, (sc, lay, b) in enumerate(order(), 1)}
+        with pulls_csv.open("w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["try", "rank", "layer", "block", f"score_{args.mode}", "result"])
+            for n, (k, r) in enumerate(pulls, 1):
+                rank, sc = scores[k]
+                layer, b = k.split(":")
+                w.writerow([n, rank, layer, b, f"{sc:.1f}", r])
+
+    def print_pulls() -> None:
+        scores = {f"{lay}:{b}": (n, sc) for n, (sc, lay, b) in enumerate(order(), 1)}
+        print(f"\npull test (mode {args.mode})\ntry  rank  block         score  result")
+        run, broken = 0, False
+        for n, (k, r) in enumerate(pulls, 1):
+            rank, sc = scores[k]
+            layer, b = k.split(":")
+            print(f"{n:>3}  {rank:>4}  L{int(layer):02d} {b:7}  {sc:6.1f}  {r}")
+            if not broken and r in ("easy", "hard"):
+                run += r == "easy"
+                broken = r == "hard"
+        print(f"pulled in a row before the first failure: {run}")
+
+    pulls_csv = session / "pulls.csv"
+    pulls: list[tuple[str, str]] = []  # (layer:block, easy/hard/skip) in the order tried
+    if pulls_csv.exists():
+        with pulls_csv.open() as f:
+            pulls = [(f"{r['layer']}:{r['block']}", r["result"]) for r in csv.DictReader(f)]
+
     if args.report:
         print_report(shots, results, layers, args.first)
+        if pulls:
+            print_pulls()
         return
 
     def save_shots() -> None:
@@ -279,6 +338,16 @@ def main() -> None:
                         put(view, f"step {i + 1}/{len(steps)}", 24)
                         put(view, step.instruction(), 60, YELLOW, 0.7)
                     put(view, "SPACE: shoot/ok   z: back   q: quit (resumable)", h - 12, WHITE, 0.5)
+                elif args.check == "pull":
+                    nxt = next_pull()
+                    if nxt:
+                        rank, sc, layer, block = nxt
+                        put(view, f"PULL TEST  try {len(pulls) + 1}   rank {rank}   score {sc:.1f}px", 24)
+                        put(view, f"PULL L{layer} {block.upper()} (seen from face {face_of(layer)})", 60, YELLOW, 0.75)
+                        put(view, "e: came out (put it on top)  h: would not (leave it)  u: skip  z: back",
+                            92, YELLOW, 0.5)
+                    else:
+                        put(view, "NOTHING LEFT TO PULL - see terminal", 40, GREEN, 0.9)
                 else:
                     if idx < len(checks):
                         layer, block = checks[idx]
@@ -312,6 +381,16 @@ def main() -> None:
                             phase, idx = "check", 0
                             save_results()
                             print_report(shots, results, layers, args.first)
+                elif args.check == "pull":
+                    nxt = next_pull()
+                    if key in (ord("e"), ord("h"), ord("u")) and nxt:
+                        _, _, layer, block = nxt
+                        pulls.append((f"{layer}:{block}", {ord("e"): "easy", ord("h"): "hard", ord("u"): "skip"}[key]))
+                        save_pulls()
+                        print_pulls()
+                    elif key == ord("z") and pulls:
+                        pulls.pop()
+                        save_pulls()
                 else:
                     if key in (ord("e"), ord("h"), ord("u")) and idx < len(checks):
                         layer, block = checks[idx]

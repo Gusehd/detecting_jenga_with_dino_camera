@@ -3,19 +3,29 @@
 The layer above rests on the highest block(s) of a layer, so instead of the gap
 above one outer block, look at the end faces of a layer where two blocks meet
 (LEFT seam = left outer | middle, RIGHT seam = middle | right outer). In one
-close-up the gap above the block left of the joint is compared with the gap
-above the block right of it: the lower block has the wider dark gap. Both
-sides share the same light, exposure and camera tilt, so only the difference
-counts. Each seam is shot from both ends of the layer.
+close-up the gap between the bottom edge of the long block above and the top
+edges of the two end faces is measured on each side of the joint: a lower
+block has a wider dark gap. Each seam is shot from both ends of the layer, so
+the middle block gets 4 gap readings and each outer block 2.
 
-Mini tower (12 blocks): layers 1-3 are tested, layer 4 only presses down. Put
-a weight (e.g. a 500 ml bottle) on top so load-bearing blocks really grip.
 Face 1 = the side where layer --first shows its three end faces. After each
-face turn the tower 90 degrees, always the same direction.
+face turn the tower 90 degrees, always the same direction (clockwise seen from
+above).
 
-Prediction per layer: block height relative to the middle = -(gap_outer -
-gap_middle), averaged over both ends; a block lower than the highest one by
-more than --tol px is predicted easy.
+Ranking (default --mode layer). Premise: no layer is all hard; either at least
+one outer or the middle comes out. Per layer
+    D = median(middle gaps) - median(outer gaps)   (4 readings each)
+  D > 0: the middle floats      -> middle, score D
+  D < 0: the outers float       -> the outer with the wider gap, score -D;
+                                   the other outer, score its gap - middle gap
+All other blocks get gap - middle gap (outers) or D (middle), mostly negative.
+Blocks are listed by score, ties -> upper layer first, then wider own gap. No
+threshold: count how many in a row from the top are easy.
+--mode block is the legacy per-block rule (lower than the highest by --tol).
+
+Gaps are measured on the flat top of each end face: the joint area is left out
+and the low SIDE_PERCENTILE of the strip widths is used, because rounded block
+corners only ever widen the gap.
 
 Keys:
   SPACE    take the shot / confirm the instruction on screen
@@ -40,7 +50,8 @@ from jenga_vision.led import set_led
 from jenga_vision.long_edge import CORE_WINDOW, DARK_FRACTION, _smooth
 
 FRAMES_PER_SHOT = 3
-STRIPS = 8  # per side of the seam
+STRIPS = 16  # per side of the seam
+SIDE_PERCENTILE = 25  # of the strip widths; rounded corners only widen the gap
 SEAM_MARGIN = 50  # px left out on each side of the joint (rounded block corners)
 GREEN, RED, YELLOW, WHITE, CYAN = (0, 200, 0), (0, 0, 255), (0, 255, 255), (255, 255, 255), (255, 255, 0)
 BLOCKS = ("left", "middle", "right")  # as seen from the layer's first face
@@ -80,7 +91,7 @@ def measure_seam(frame: np.ndarray) -> SeamResult:
         bounds = np.linspace(x0, x1, STRIPS + 1).astype(int)
         widths = [float((_smooth(np.median(gray[:, s0:s1], axis=1))[a:b] < dark).sum())
                   for s0, s1 in zip(bounds[:-1], bounds[1:])]
-        return float(np.median(widths))
+        return float(np.percentile(widths, SIDE_PERCENTILE))
 
     return SeamResult(center, seam_x, side(w // 20, seam_x - SEAM_MARGIN), side(seam_x + SEAM_MARGIN, w - w // 20))
 
@@ -114,31 +125,69 @@ def build_steps(first: int, last: int) -> list[Step]:
     return steps
 
 
-def outer_gaps(shots: dict[str, tuple[float, float]], layer: int, first: int) -> dict[str, list[float]]:
-    """gap_outer - gap_middle per outer block, one value per seam shot (> 0: outer lower)."""
+def block_gaps(shots: dict[str, tuple[float, float]], layer: int, first: int) -> dict[str, list[float]]:
+    """Gap readings (px) above each block of a layer; blocks named as seen from its first face."""
     near = 1 if (layer - first) % 2 == 0 else 2  # the layer's first face
-    far = near + 2
-    out: dict[str, list[float]] = {"left": [], "right": []}
-    for face, seam, block, outer_is_left in (
-        (near, "left", "left", True), (near, "right", "right", False),
-        (far, "left", "right", True), (far, "right", "left", False),
+    far = near + 2  # opposite end: left and right swap
+    out: dict[str, list[float]] = {b: [] for b in BLOCKS}
+    for face, seam, on_left, on_right in (
+        (near, "left", "left", "middle"), (near, "right", "middle", "right"),
+        (far, "left", "right", "middle"), (far, "right", "middle", "left"),
     ):
         v = shots.get(f"L{layer:02d}:f{face}:{seam}")
-        if v is None:
-            continue
-        gl, gr = v
-        out[block].append(gl - gr if outer_is_left else gr - gl)
+        if v is not None:
+            out[on_left].append(v[0])
+            out[on_right].append(v[1])
     return out
 
 
-def predict_layer(rel: dict[str, list[float]], tol: float) -> dict[str, tuple[float, str]]:
-    """Height of each block relative to the middle (px, + = higher) and its prediction."""
-    heights = {"middle": 0.0}
-    for block in ("left", "right"):
-        if rel[block]:
-            heights[block] = -float(np.mean(rel[block]))
+def layer_scores(gaps: dict[str, list[float]]) -> dict[str, float]:
+    """Score per block of one layer (higher = easier), see the module docstring."""
+    if not gaps["middle"] or not (gaps["left"] or gaps["right"]):
+        return {}
+    mid = float(np.median(gaps["middle"]))
+    d = mid - float(np.median(gaps["left"] + gaps["right"]))
+    own = {b: min(gaps[b]) - mid for b in ("left", "right") if gaps[b]}
+    scores = {"middle": d, **own}
+    if d < 0:
+        scores[max(own, key=own.get)] = -d
+    return scores
+
+
+def legacy_scores(shots: dict[str, tuple[float, float]], layer: int, first: int) -> dict[str, float]:
+    """Old per-block rule: px below the highest block, outer height from the gap step
+    against the middle in the same photo, averaged over both ends."""
+    near = 1 if (layer - first) % 2 == 0 else 2
+    steps: dict[str, list[float]] = {"left": [], "right": []}
+    for face, seam, block, outer_is_left in (
+        (near, "left", "left", True), (near, "right", "right", False),
+        (near + 2, "left", "right", True), (near + 2, "right", "left", False),
+    ):
+        v = shots.get(f"L{layer:02d}:f{face}:{seam}")
+        if v is not None:
+            steps[block].append(v[0] - v[1] if outer_is_left else v[1] - v[0])
+    heights = {"middle": 0.0, **{b: -float(np.mean(v)) for b, v in steps.items() if v}}
     top = max(heights.values())
-    return {b: (hgt, "easy" if top - hgt > tol else "hard") for b, hgt in heights.items()}
+    return {b: top - h for b, h in heights.items()}
+
+
+@dataclass
+class Pick:
+    layer: int
+    block: str
+    score: float
+    gap: float  # median own gap, tie-break
+
+
+def rank_blocks(shots: dict[str, tuple[float, float]], layers: list[int], first: int,
+                mode: str = "layer") -> list[Pick]:
+    """All blocks, easiest first: score desc, ties -> upper layer, then wider own gap."""
+    picks = []
+    for layer in layers:
+        gaps = block_gaps(shots, layer, first)
+        scores = layer_scores(gaps) if mode == "layer" else legacy_scores(shots, layer, first)
+        picks += [Pick(layer, b, sc, float(np.median(gaps[b]))) for b, sc in scores.items()]
+    return sorted(picks, key=lambda p: (-p.score, -p.layer, -p.gap))
 
 
 def put(img, text, y, color=WHITE, scale=0.6):
@@ -150,10 +199,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("captures"))
-    parser.add_argument("--first", type=int, default=1, help="lowest layer to test")
-    parser.add_argument("--last", type=int, default=3, help="highest layer to test (needs a layer above it)")
-    parser.add_argument("--tol", type=float, default=2.0, help="px lower than the highest block -> easy")
+    parser.add_argument("--first", type=int, default=2, help="lowest layer to test")
+    parser.add_argument("--last", type=int, default=16, help="highest layer to test (needs a layer above it)")
+    parser.add_argument("--mode", choices=("layer", "block"), default="layer",
+                        help="layer: middle-vs-outers ranking (default); block: legacy per-block rule")
+    parser.add_argument("--tol", type=float, default=2.0, help="--mode block: px below the highest block -> easy")
     parser.add_argument("--resume", type=Path, default=None)
+    parser.add_argument("--report", action="store_true",
+                        help="no camera: print the ranking of --resume (use --remeasure after code changes)")
+    parser.add_argument("--remeasure", action="store_true", help="with --report: re-measure the saved photos")
     args = parser.parse_args()
 
     steps = build_steps(args.first, args.last)
@@ -178,37 +232,45 @@ def main() -> None:
             w.writerow(["key", "gap_left", "gap_right", "step"])
             w.writerows([k, f"{gl:.1f}", f"{gr:.1f}", f"{gl - gr:.1f}"] for k, (gl, gr) in shots.items())
 
-    def predictions() -> dict[str, tuple[float, str]]:
-        out = {}
-        for layer in layers:
-            for block, v in predict_layer(outer_gaps(shots, layer, args.first), args.tol).items():
-                out[f"{layer}:{block}"] = v
-        return out
+    def ranking() -> list[Pick]:
+        return rank_blocks(shots, layers, args.first, args.mode)
+
+    def predicted(p: Pick) -> str:
+        return "easy" if p.score > (args.tol if args.mode == "block" else 0) else "hard"
 
     def save_results() -> None:
-        pred = predictions()
         with result_csv.open("w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["layer", "block", "height_px", "pred", "actual"])
-            for layer, block in checks:
-                hgt, p = pred.get(f"{layer}:{block}", (float("nan"), ""))
-                w.writerow([layer, block, f"{hgt:.1f}", p, results.get(f"{layer}:{block}", "")])
+            w.writerow(["rank", "layer", "block", "score", "pred", "actual"])
+            for n, p in enumerate(ranking(), 1):
+                w.writerow([n, p.layer, p.block, f"{p.score:.1f}", predicted(p), results.get(f"{p.layer}:{p.block}", "")])
 
     def report() -> None:
-        pred = predictions()
-        print("\nlayer  block   height  pred  actual")
-        ok = n = 0
-        for layer, block in checks:
-            hgt, p = pred.get(f"{layer}:{block}", (float("nan"), "-"))
-            a = results.get(f"{layer}:{block}", "")
+        print(f"\nrank layer  block   score  pred  actual   (mode {args.mode})")
+        streak, broken, ok, n = 0, False, 0, 0
+        for rank, p in enumerate(ranking(), 1):
+            a = results.get(f"{p.layer}:{p.block}", "")
             mark = ""
-            if a in ("easy", "hard") and p:
+            if a in ("easy", "hard"):
                 n += 1
-                ok += a == p
-                mark = "OK" if a == p else "MISS"
-            print(f"{layer:>5}  {block:7} {hgt:6.1f}  {p:5} {a:6} {mark}")
+                ok += a == predicted(p)
+                mark = "OK" if a == predicted(p) else "MISS"
+                if not broken:
+                    streak += a == "easy"
+                    broken = a == "hard"
+            print(f"{rank:>4} {p.layer:>5}  {p.block:7} {p.score:6.1f}  {predicted(p):5} {a:6}   {mark}")
         if n:
-            print(f"{ok}/{n} correct")
+            print(f"easy in a row from the top: {streak}    pred correct {ok}/{n}")
+
+    if args.report:
+        if args.remeasure:
+            for key in list(shots):
+                photos = sorted(session.glob(f"{key.replace(':', '_')}_*.png"))
+                if photos:
+                    r = measure_seam(cv2.imread(str(photos[-1])))
+                    shots[key] = (r.gap_left, r.gap_right)
+        report()
+        return
 
     def face_of(layer: int) -> int:
         return 1 if (layer - args.first) % 2 == 0 else 2

@@ -37,7 +37,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from jenga_vision.camera import DinoCamera
+from jenga_vision.camera import DinoCamera, GeminiCamera, find_gemini_color
 from jenga_vision.led import set_led
 from jenga_vision.long_edge import measure_single
 from jenga_vision.pick import LayerPick, layer_ranking
@@ -112,7 +112,11 @@ def describe(block: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--device", type=int, default=0)
+    parser.add_argument("--device", type=int, default=None, help="/dev/video index (default: dino 0, gemini auto)")
+    parser.add_argument("--camera", choices=("dino", "gemini"), default="dino",
+                        help="gemini: Orbbec Gemini 305 color stream, center crop zoomed (no LED control)")
+    parser.add_argument("--roi", type=float, default=0.25, help="gemini: central fraction of the frame used")
+    parser.add_argument("--zoom", type=int, default=2, help="gemini: nearest-neighbor upscale of the crop")
     parser.add_argument("--out", type=Path, default=Path("captures"))
     parser.add_argument("--first", type=int, default=2, help="lowest layer to scan (1 sits in the jig)")
     parser.add_argument("--last", type=int, default=16, help="highest layer to scan (top layer excluded)")
@@ -126,7 +130,8 @@ def main() -> None:
     args = parser.parse_args()
 
     steps = build_steps(args.first, args.last, args.with_middle)
-    session = args.resume or args.out / time.strftime("tower_%Y%m%d_%H%M%S")
+    prefix = "tower_gemini" if args.camera == "gemini" else "tower"
+    session = args.resume or args.out / time.strftime(f"{prefix}_%Y%m%d_%H%M%S")
     session.mkdir(parents=True, exist_ok=True)
     shots_csv, picks_csv = session / "shots.csv", session / "picks.csv"
 
@@ -179,11 +184,18 @@ def main() -> None:
     if phase == "check":
         idx = next((n for n, pk in enumerate(ranked()) if pk.block not in results), len(ranked()))
 
-    with DinoCamera(args.device) as cam:
+    dino = args.camera == "dino"
+    if dino:
+        cam_ctx = DinoCamera(0 if args.device is None else args.device)
+    else:
+        device = find_gemini_color() if args.device is None else args.device
+        cam_ctx = GeminiCamera(device, roi=args.roi, zoom=args.zoom)
+    with cam_ctx as cam:
         # The LED command is ignored until the camera is streaming.
         for _ in range(5):
             cam.read()
-        set_led(False)
+        if dino:
+            set_led(False)
         print(f"Session: {session}   ({len(steps)} steps, layers {args.first}-{args.last})")
         try:
             while True:
@@ -257,7 +269,8 @@ def main() -> None:
                     elif key == ord("z") and idx > 0:
                         idx -= 1
         finally:
-            set_led(True)
+            if dino:
+                set_led(True)
             save_shots()
             if shots:
                 save_picks()

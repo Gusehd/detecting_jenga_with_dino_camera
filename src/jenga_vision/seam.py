@@ -63,6 +63,8 @@ class SeamResult:
     seam_x: int  # column of the joint
     gap_left: float  # dark core width above the block left of the joint (px)
     gap_right: float
+    left_box: tuple[int, int, int, int] = (0, 0, 0, 0)  # x0, x1, row center, measured part (for drawing)
+    right_box: tuple[int, int, int, int] = (0, 0, 0, 0)
 
     @property
     def step(self) -> float:
@@ -85,15 +87,19 @@ def measure_seam(frame: np.ndarray) -> SeamResult:
     c0, c1 = w // 5, w - w // 5
     seam_x = c0 + int(np.argmin(cols[c0:c1]))
 
-    def side(x0: int, x1: int) -> float:
+    def side(x0: int, x1: int) -> tuple[float, tuple[int, int, int, int]]:
         if x1 - x0 < STRIPS:
-            return float("nan")
+            return float("nan"), (x0, x1, center, 0)
         bounds = np.linspace(x0, x1, STRIPS + 1).astype(int)
         widths = [float((_smooth(np.median(gray[:, s0:s1], axis=1))[a:b] < dark).sum())
                   for s0, s1 in zip(bounds[:-1], bounds[1:])]
-        return float(np.percentile(widths, SIDE_PERCENTILE))
+        dark_rows = np.flatnonzero(_smooth(np.median(gray[:, x0:x1], axis=1))[a:b] < dark)
+        row = a + int(dark_rows.mean()) if len(dark_rows) else center
+        return float(np.percentile(widths, SIDE_PERCENTILE)), (x0, x1, row, 0)
 
-    return SeamResult(center, seam_x, side(w // 20, seam_x - SEAM_MARGIN), side(seam_x + SEAM_MARGIN, w - w // 20))
+    gl, lb = side(w // 20, seam_x - SEAM_MARGIN)
+    gr, rb = side(seam_x + SEAM_MARGIN, w - w // 20)
+    return SeamResult(center, seam_x, gl, gr, lb, rb)
 
 
 @dataclass(frozen=True)
@@ -193,6 +199,11 @@ def rank_blocks(shots: dict[str, tuple[float, float]], layers: list[int], first:
 def put(img, text, y, color=WHITE, scale=0.6):
     cv2.putText(img, text, (8, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 4)
     cv2.putText(img, text, (8, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, 2)
+
+
+def put_at(img, text, org, color=WHITE, scale=0.55):
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 4)
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 2)
 
 
 def main() -> None:
@@ -299,12 +310,20 @@ def main() -> None:
                         cv2.line(view, (0, h // 2), (w // 8, h // 2), CYAN, 2)
                         cv2.line(view, (w - w // 8, h // 2), (w, h // 2), CYAN, 2)
                         cv2.line(view, (r.seam_x, r.row + 10), (r.seam_x, h), GREEN, 1)
-                        put(view, f"face {step.face}/4  step {i + 1}/{len(steps)}   "
-                                  f"gap L {r.gap_left:.0f}  R {r.gap_right:.0f}  step {r.step:+.0f}px", 24)
-                        put(view, step.instruction(), 56, YELLOW, 0.7)
-                        put(view, "joint on the cyan vertical line, gap on the side marks", 84, WHITE, 0.5)
+                        names = ("OUTER", "MIDDLE") if step.seam == "left" else ("MIDDLE", "OUTER")
+                        for (x0, x1, row, _), gap, name in ((r.left_box, r.gap_left, names[0]),
+                                                            (r.right_box, r.gap_right, names[1])):
+                            if gap == gap:  # not nan
+                                half = max(int(gap // 2), 1)
+                                cv2.rectangle(view, (x0, row - half), (x1, row + half), CYAN, 1)
+                                put_at(view, f"{name} {gap:.0f}px", (x0 + 4, min(row + half + 22, h - 30)), CYAN)
+                        put(view, f"face {step.face}/4  step {i + 1}/{len(steps)}", 24)
+                        put(view, step.instruction(), 52, YELLOW, 0.7)
+                        put(view, f"{names[0]} {r.gap_left:.0f}px | {names[1]} {r.gap_right:.0f}px   "
+                                  f"(wider gap = lower block)", 80, CYAN, 0.6)
+                        put(view, "joint on the cyan vertical line, gap on the side marks", 104, WHITE, 0.5)
                         if i == 0:
-                            put(view, f"(face 1: L{args.first} shows its 3 end faces)", 108, WHITE, 0.5)
+                            put(view, f"(face 1: L{args.first} shows its 3 end faces)", 126, WHITE, 0.5)
                     else:
                         put(view, f"step {i + 1}/{len(steps)}", 24)
                         put(view, step.instruction(), 60, YELLOW, 0.7)

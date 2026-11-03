@@ -26,7 +26,6 @@ import cv2
 import numpy as np
 
 from jenga_vision.camera import DinoCamera
-from jenga_vision.led import set_led
 from jenga_vision.long_edge import EASY_TOP_PX, measure_single
 
 SEGMENTS = ("left", "center", "right")
@@ -60,77 +59,70 @@ def main() -> None:
     widths: list[float] = []
     done = correct = 0
     with DinoCamera(args.device) as cam:
-        # The LED command is ignored until the camera is streaming.
-        for _ in range(5):
-            cam.read()
-        set_led(False)
         print(f"Session: {session}")
-        try:
-            while True:
-                frame = cam.read()
-                band = measure_single(frame)
-                h, w = frame.shape[:2]
+        while True:
+            frame = cam.read()
+            band = measure_single(frame)
+            h, w = frame.shape[:2]
 
-                view = frame.copy()
-                half = max(int(band.width_px // 2), 1)
-                live_color = GREEN if band.width_px >= EASY_TOP_PX else RED
-                cv2.rectangle(view, (w // 10, band.row - half), (w - w // 10, band.row + half), CYAN, 1)
-                cv2.line(view, (0, h // 2), (w // 8, h // 2), CYAN, 2)
-                cv2.line(view, (w - w // 8, h // 2), (w, h // 2), CYAN, 2)
+            view = frame.copy()
+            half = max(int(band.width_px // 2), 1)
+            live_color = GREEN if band.width_px >= EASY_TOP_PX else RED
+            cv2.rectangle(view, (w // 10, band.row - half), (w - w // 10, band.row + half), CYAN, 1)
+            cv2.line(view, (0, h // 2), (w // 8, h // 2), CYAN, 2)
+            cv2.line(view, (w - w // 8, h // 2), (w, h // 2), CYAN, 2)
 
-                put(view, f"L{layer} P{position}   live {band.width_px:.0f}px", 24, live_color)
-                shots = "  ".join(
-                    f"{s[0].upper()}:{widths[i]:.0f}" if i < len(widths) else f"{s[0].upper()}:--"
-                    for i, s in enumerate(SEGMENTS)
-                )
-                put(view, shots, 50)
-                if len(widths) < len(SEGMENTS):
-                    put(view, f"SHOOT: TOP {SEGMENTS[len(widths)].upper()} ({len(widths) + 1}/3)", 80, YELLOW, 0.8)
-                else:
-                    px = float(np.median(widths))
-                    pred = predict(px)
-                    put(view, f"PREDICT {pred.upper()} {px:.0f}px -> push, then e/h", 80,
-                        GREEN if pred == "easy" else RED, 0.8)
-                acc = f"{correct}/{done} correct" if done else "no results yet"
-                put(view, f"{acc}   thr {EASY_TOP_PX:.0f}px   LED off", h - 12, YELLOW)
-                cv2.imshow("jenga live edge", view)
+            put(view, f"L{layer} P{position}   live {band.width_px:.0f}px", 24, live_color)
+            shots = "  ".join(
+                f"{s[0].upper()}:{widths[i]:.0f}" if i < len(widths) else f"{s[0].upper()}:--"
+                for i, s in enumerate(SEGMENTS)
+            )
+            put(view, shots, 50)
+            if len(widths) < len(SEGMENTS):
+                put(view, f"SHOOT: TOP {SEGMENTS[len(widths)].upper()} ({len(widths) + 1}/3)", 80, YELLOW, 0.8)
+            else:
+                px = float(np.median(widths))
+                pred = predict(px)
+                put(view, f"PREDICT {pred.upper()} {px:.0f}px -> push, then e/h", 80,
+                    GREEN if pred == "easy" else RED, 0.8)
+            acc = f"{correct}/{done} correct" if done else "no results yet"
+            put(view, f"{acc}   thr {EASY_TOP_PX:.0f}px   LED off", h - 12, YELLOW)
+            cv2.imshow("jenga live edge", view)
 
-                key = cv2.waitKey(1) & 0xFF
-                if key in (ord("q"), 27):
-                    break
-                elif key == ord("]"):
-                    layer += 1
-                elif key == ord("[") and layer > 1:
-                    layer -= 1
-                elif key in (ord("1"), ord("2"), ord("3")):
-                    position = key - ord("0")
-                elif key == ord("x"):
-                    widths.clear()
-                elif key == ord("z") and widths:
-                    widths.pop()
-                elif key == ord(" ") and len(widths) < len(SEGMENTS):
-                    seg = SEGMENTS[len(widths)]
-                    frames = [frame] + [cam.read() for _ in range(FRAMES_PER_SHOT - 1)]
-                    px = float(np.median([measure_single(f).width_px for f in frames]))
-                    widths.append(px)
-                    cv2.imwrite(str(session / f"L{layer:02d}_P{position}_top-{seg}_{time.time() * 1000:.0f}.png"), frame)
-                    print(f"L{layer} P{position} top-{seg}: {px:.1f}px")
-                elif key in (ord("e"), ord("h")) and len(widths) == len(SEGMENTS):
-                    actual = "easy" if key == ord("e") else "hard"
-                    px = float(np.median(widths))
-                    pred = predict(px)
-                    done += 1
-                    correct += pred == actual
-                    with csv_path.open("a", newline="") as f:
-                        csv.writer(f).writerow(
-                            [layer, position, *(f"{v:.1f}" for v in widths), f"{px:.1f}",
-                             pred, actual, int(pred == actual), time.time()]
-                        )
-                    print(f"L{layer} P{position}: {px:.1f}px pred {pred} actual {actual} -> "
-                          f"{'OK' if pred == actual else 'MISS'}  ({correct}/{done})")
-                    widths.clear()
-        finally:
-            set_led(True)
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                break
+            elif key == ord("]"):
+                layer += 1
+            elif key == ord("[") and layer > 1:
+                layer -= 1
+            elif key in (ord("1"), ord("2"), ord("3")):
+                position = key - ord("0")
+            elif key == ord("x"):
+                widths.clear()
+            elif key == ord("z") and widths:
+                widths.pop()
+            elif key == ord(" ") and len(widths) < len(SEGMENTS):
+                seg = SEGMENTS[len(widths)]
+                frames = [frame] + [cam.read() for _ in range(FRAMES_PER_SHOT - 1)]
+                px = float(np.median([measure_single(f).width_px for f in frames]))
+                widths.append(px)
+                cv2.imwrite(str(session / f"L{layer:02d}_P{position}_top-{seg}_{time.time() * 1000:.0f}.png"), frame)
+                print(f"L{layer} P{position} top-{seg}: {px:.1f}px")
+            elif key in (ord("e"), ord("h")) and len(widths) == len(SEGMENTS):
+                actual = "easy" if key == ord("e") else "hard"
+                px = float(np.median(widths))
+                pred = predict(px)
+                done += 1
+                correct += pred == actual
+                with csv_path.open("a", newline="") as f:
+                    csv.writer(f).writerow(
+                        [layer, position, *(f"{v:.1f}" for v in widths), f"{px:.1f}",
+                         pred, actual, int(pred == actual), time.time()]
+                    )
+                print(f"L{layer} P{position}: {px:.1f}px pred {pred} actual {actual} -> "
+                      f"{'OK' if pred == actual else 'MISS'}  ({correct}/{done})")
+                widths.clear()
     cv2.destroyAllWindows()
 
 

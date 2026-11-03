@@ -7,15 +7,28 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from jenga_vision.led import set_led
+
 
 class DinoCamera:
-    def __init__(self, device: int = 0, width: int = 640, height: int = 480):
+    """`led` is the Dino LED state set on open (off by default); None leaves it alone."""
+
+    def __init__(self, device: int = 0, width: int = 640, height: int = 480,
+                 led: bool | None = False):
         self.device = device
         self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
         if not self.cap.isOpened():
             raise RuntimeError(f"Cannot open /dev/video{device}")
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if led is not None:
+            # The LED command is ignored until the camera is streaming.
+            for _ in range(5):
+                self.read()
+            try:
+                set_led(led)
+            except RuntimeError as e:
+                print(f"warning: LED not set ({e})")
 
     @property
     def resolution(self) -> tuple[int, int]:
@@ -51,7 +64,7 @@ class GeminiCamera(DinoCamera):
 
     def __init__(self, device: int = 0, width: int = 1280, height: int = 800,
                  roi: float = 0.25, zoom: int = 2):
-        super().__init__(device, width, height)
+        super().__init__(device, width, height, led=None)
         self.roi, self.zoom = roi, zoom
 
     def read(self) -> np.ndarray:
@@ -78,3 +91,11 @@ def sharpness(frame: np.ndarray) -> float:
     """Variance of Laplacian: higher means better focus."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
+def focus_value(frame: np.ndarray) -> float:
+    """Band-pass sharpness (variance of a difference of Gaussians, sigma 1 and 3 px).
+    The plain variance of Laplacian (jenga-view) is dominated by sensor noise: on the
+    2026-10-30 shots it was 741-1619 in focus and 293-572 blurred; this is 44-135 vs 2-4."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    return float(np.var(cv2.GaussianBlur(gray, (0, 0), 1.0) - cv2.GaussianBlur(gray, (0, 0), 3.0)))

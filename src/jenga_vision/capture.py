@@ -192,7 +192,7 @@ def main() -> None:
                         else:
                             mode = VIEWS.index("top")
                             print(f"L{layer} P{position} done -> set the next block")
-        set_led(True)
+        set_led(False)
     cv2.destroyAllWindows()
 
 

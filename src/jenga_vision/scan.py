@@ -42,7 +42,6 @@ import cv2
 import numpy as np
 
 from jenga_vision.camera import DinoCamera
-from jenga_vision.led import set_led
 from jenga_vision.long_edge import EASY_TOP_PX, measure_single
 
 SEGMENTS = ("left", "center", "right")
@@ -135,10 +134,6 @@ def main() -> None:
     phase = "scan"
     idx = 0  # rank index in the check phase
     with DinoCamera(args.device) as cam:
-        # The LED command is ignored until the camera is streaming.
-        for _ in range(5):
-            cam.read()
-        set_led(False)
         print(f"Session: {session}")
         try:
             while True:
@@ -239,7 +234,6 @@ def main() -> None:
                     elif key == ord("z") and idx > 0:
                         idx -= 1
         finally:
-            set_led(True)
             scan.save()
     cv2.destroyAllWindows()
     print(f"saved {session / 'scan.csv'}")

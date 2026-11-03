@@ -1,0 +1,30 @@
+{
+  "grasp_dino": [
+    [["little"], "grasp_dino"],
+    [["ring"], "grasp_dino"],
+    [["middle"], "grasp_dino"],
+    [["thumb"], "grasp_dino"],
+    [["index"], "grasp_dino"]
+  ],
+  "release_dino": [
+    [["index"], "initial"],
+    [["thumb"], "initial"],
+    [["middle"], "initial"],
+    [["ring"], "initial"],
+    [["little"], "initial"]
+  ],
+  "grasp_middle_1": [
+    [["little"], "grasp_middle_1"],
+    [["ring"], "grasp_middle_1"],
+    [["middle"], "grasp_middle_1"],
+    [["index"], "grasp_middle_1"],
+    [["thumb"], "grasp_middle_1"]
+  ],
+  "release_middle_1": [
+    [["thumb"], "initial_1"],
+    [["index"], "initial_1"],
+    [["middle"], "initial_1"],
+    [["ring"], "initial_1"],
+    [["little"], "initial_1"]
+  ]
+}

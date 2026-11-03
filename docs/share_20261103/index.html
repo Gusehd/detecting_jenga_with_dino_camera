@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>젠가 틈 스캔 결과 2026-11-03</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Lab report: one reading column, measured tables are the main content, photos as evidence. */
+:root {
+  --bg: #f4f5f3;
+  --surface: #ffffff;
+  --ink: #1d2422;
+  --muted: #5c6763;
+  --line: #d6dbd7;
+  --accent: #17625a;
+  --bar: #4f958b;
+  --ok-bg: #dcefe6;
+  --ok-ink: #14573a;
+  --bad-bg: #f8e0dc;
+  --bad-ink: #8c2b1d;
+  --warn-bg: #f6ecd0;
+  --warn-ink: #6d5208;
+  --body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151a19; --surface: #1e2523; --ink: #e8ecea; --muted: #a2adaa; --line: #36403d;
+    --accent: #71c9bc; --bar: #4f9d91;
+    --ok-bg: #173d2e; --ok-ink: #a5e3c6; --bad-bg: #4b211b; --bad-ink: #f6bdb2; --warn-bg: #443713; --warn-ink: #eed58a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151a19; --surface: #1e2523; --ink: #e8ecea; --muted: #a2adaa; --line: #36403d;
+  --accent: #71c9bc; --bar: #4f9d91;
+  --ok-bg: #173d2e; --ok-ink: #a5e3c6; --bad-bg: #4b211b; --bad-ink: #f6bdb2; --warn-bg: #443713; --warn-ink: #eed58a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.65 var(--body); word-break: keep-all; overflow-wrap: anywhere; }
+main { max-width: 900px; margin: 0 auto; padding: 40px 20px 72px; display: grid; gap: 44px; }
+header p.date { margin: 0 0 6px; color: var(--muted); font-size: 14px; }
+h1 { margin: 0 0 14px; font-size: 32px; line-height: 1.3; text-wrap: balance; }
+h2 { margin: 0 0 12px; font-size: 22px; line-height: 1.35; text-wrap: balance; }
+h3 { margin: 22px 0 8px; font-size: 16px; }
+p { margin: 0 0 12px; max-width: 68ch; }
+ul, ol { margin: 0 0 12px; padding-left: 22px; max-width: 68ch; }
+li { margin-bottom: 6px; }
+.lead { font-size: 18px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 20px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+.tile b { display: block; font: 500 30px/1.2 var(--mono); color: var(--accent); }
+.tile span { display: block; font-size: 14px; color: var(--muted); margin-top: 4px; }
+.note { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 12px 16px; max-width: none; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 13px; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-family: var(--mono); }
+td code { font: 13px var(--mono); color: var(--muted); }
+tr.cut td { border-bottom: 2px solid var(--ink); }
+.pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 13px; font-weight: 500; }
+.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.barcell { min-width: 150px; }
+.bar { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 13px; }
+.bar i { display: block; height: 8px; min-width: 2px; background: var(--bar); border-radius: 0 4px 4px 0; width: calc(var(--v) * 5.5px); }
+.photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 18px; }
+figure { margin: 0; }
+img { max-width: 100%; height: auto; display: block; border-radius: 4px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.sheets { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.small { font-size: 14px; color: var(--muted); }
+@media (max-width: 480px) { h1 { font-size: 26px; } .photos { gap: 4px; } }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <p class="date">2026-11-03 · CES2027 젠가 비전 · 새 탑 1개 시험</p>
+  <h1>젠가 틈 스캔 결과: 뽑을 순서를 얼마나 맞혔나</h1>
+  <p class="lead">Dino-Lite로 +x면과 −y면의 틈을 재서 뽑을 순서를 만들었습니다. 밀기 전에 고정한 순서는 연속 3개에서 끊겼고, 결과를 본 뒤 찾은 새 기준으로는 1~11위가 모두 빠지는 블록이었습니다. 새 기준은 다음 탑에서 검증해야 합니다.</p>
+  <div class="tiles">
+    <div class="tile"><b>3개</b><span>밀기 전 고정한 순서의 연속 성공</span></div>
+    <div class="tile"><b>11개</b><span>사후 기준(px 차이 순)의 연속 성공, 미검증</span></div>
+    <div class="tile"><b>10 / 13층</b><span>고정 예측의 층 패턴 적중</span></div>
+    <div class="tile"><b>약 7분</b><span>면당 스캔 시간 (목표 90초)</span></div>
+  </div>
+</header>
+
+<section>
+  <h2>무엇을 했나</h2>
+  <ol>
+    <li><b>스캔:</b> 오른팔이 쥔 Dino-Lite(다이얼 40)로 블록 끝면 위쪽 틈을 찍고, 검은 틈의 두께를 px로 쟀습니다.</li>
+    <li><b>면 선택:</b> +x면은 짝수 층, −y면은 홀수 층의 끝면이 보입니다. 두 면을 합치면 3~15층을 층마다 한쪽 끝씩 봅니다. 1, 2층과 맨 위 두 층(16, 17층)은 보지 않습니다. 층 번호는 맨 아래가 1층입니다.</li>
+    <li><b>빼안빼룰:</b> 한 층은 <code>안빼안</code>(가운데만 빠짐)이거나 <code>빼안빼</code>(양옆이 빠짐)라고 봅니다. 가운데를 뽑으면 그 층은 끝이고, 옆을 뽑으면 바로 반대쪽 옆을 뽑고 끝입니다.</li>
+    <li><b>검증:</b> 3~15층의 모든 블록을 손으로 하나씩 밀어 보고 제자리에 되돌렸습니다.</li>
+  </ol>
+  <p class="note"><b>주의:</b> 연속 성공 횟수는 손으로 민 결과에 순서를 대입해 계산한 값입니다. 앞 블록이 빠진 상태에서 실제로 연속으로 뽑은 결과는 아닙니다.</p>
+</section>
+
+<section>
+  <h2>밀기 전에 고정한 순서의 결과</h2>
+  <p>px 값이 큰 블록부터 나열한 순서입니다. 19개 중 14개가 빠졌지만, 4번째인 11층 가운데에서 연속이 끊겼습니다. 이 층은 16 / 16 / 10 px로 동점이었고 동점 규칙(가운데 먼저)이 틀렸습니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>사용한 면</th><th class="num">룰 없음 연속</th><th class="num">룰 적용 연속</th><th class="num">동점 순서에 따른 범위</th><th class="num">룰 적용 상위 8개 중 성공</th></tr></thead>
+    <tbody>
+      <tr><td>+x만</td><td class="num">5</td><td class="num">6</td><td class="num">3~7</td><td class="num">6</td></tr>
+      <tr><td>−y만</td><td class="num">1</td><td class="num">2</td><td class="num">2~9</td><td class="num">7</td></tr>
+      <tr><td>두 면 합침</td><td class="num">2</td><td class="num">3</td><td class="num">3~15</td><td class="num">7</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>새 기준으로 다시 나열한 순위</h2>
+  <p>층마다 가운데 블록과 더 큰 옆 블록의 px 차이를 구해, 차이가 큰 층부터 빼안빼룰로 뽑는 순서입니다. 차이가 같으면 위층이 먼저입니다. 표의 굵은 선이 첫 실패 지점입니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th class="num">순위</th><th>층</th><th>뽑을 블록</th><th>동료 프레임 이름</th><th>왼 / 가운데 / 오른 (px)</th><th class="barcell">px 차이</th><th>손으로 민 결과</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>10층</td><td>가운데</td><td><code>jenga_L09_S1</code></td><td>0 / 18 / 0</td><td class="barcell"><div class="bar" style="--v:18"><i></i>18</div></td><td><span class="pill ok">빠짐</span></td></tr>
+      <tr><td class="num">2, 3</td><td>5층</td><td>오른쪽 → 왼쪽</td><td><code>jenga_L04_S2, S0</code></td><td>14 / 9 / 25</td><td class="barcell"><div class="bar" style="--v:16"><i></i>16</div></td><td><span class="pill ok">빠짐</span></td></tr>
+      <tr><td class="num">4</td><td>3층</td><td>가운데</td><td><code>jenga_L02_S1</code></td><td>3 / 15 / 6</td><td class="barcell"><div class="bar" style="--v:9"><i></i>9</div></td><td><span class="pill ok">빠짐</span></td></tr>
+      <tr><td class="num">5, 6</td><td>8층</td><td>오른쪽 → 왼쪽</td><td><code>jenga_L07_S2, S0</code></td><td>7 / 2 / 10</td><td class="barcell"><div class="bar" style="--v:8"><i></i>8</div></td><td><span class="pill warn">빠짐, 뻑뻑함</span></td></tr>
+      <tr><td class="num">7, 8</td><td>13층</td><td>오른쪽 → 왼쪽</td><td><code>jenga_L12_S2, S0</code></td><td>4 / 3 / 9</td><td class="barcell"><div class="bar" style="--v:6"><i></i>6</div></td><td><span class="pill warn">빠짐, 뻑뻑함</span></td></tr>
+      <tr><td class="num">9</td><td>9층</td><td>가운데</td><td><code>jenga_L08_S1</code></td><td>5 / 15 / 10</td><td class="barcell"><div class="bar" style="--v:5"><i></i>5</div></td><td><span class="pill ok">빠짐</span></td></tr>
+      <tr><td class="num">10</td><td>7층</td><td>가운데</td><td><code>jenga_L06_S1</code></td><td>2 / 12 / 10</td><td class="barcell"><div class="bar" style="--v:2"><i></i>2</div></td><td><span class="pill ok">빠짐</span></td></tr>
+      <tr class="cut"><td class="num">11</td><td>6층</td><td>가운데</td><td><code>jenga_L05_S1</code></td><td>0 / 3 / 1</td><td class="barcell"><div class="bar" style="--v:2"><i></i>2</div></td><td><span class="pill ok">빠짐</span></td></tr>
+      <tr><td class="num">12, 13</td><td>15층</td><td>오른쪽 → 왼쪽</td><td><code>jenga_L14_S2, S0</code></td><td>4 / 6 / 7</td><td class="barcell"><div class="bar" style="--v:1"><i></i>1</div></td><td><span class="pill bad">안 빠짐</span></td></tr>
+      <tr><td class="num">14, 15</td><td>14층</td><td>오른쪽 → 왼쪽</td><td><code>jenga_L13_S2, S0</code></td><td>안 찍힘 / 2 / 3</td><td class="barcell"><div class="bar" style="--v:1"><i></i>1</div></td><td><span class="pill bad">안 빠짐</span></td></tr>
+      <tr><td class="num">16</td><td>11층</td><td>가운데</td><td><code>jenga_L10_S1</code></td><td>16 / 16 / 10</td><td class="barcell"><div class="bar" style="--v:0"><i></i>0</div></td><td><span class="pill bad">안 빠짐</span></td></tr>
+      <tr><td class="num">17</td><td>4층</td><td>가운데</td><td><code>jenga_L03_S1</code></td><td>4 / 7 / 7</td><td class="barcell"><div class="bar" style="--v:0"><i></i>0</div></td><td><span class="pill ok">빠짐</span></td></tr>
+      <tr><td class="num">–</td><td>12층</td><td>순위 없음</td><td><code>jenga_L11</code></td><td>안 찍힘 / 안 찍힘 / 7</td><td class="barcell">비교 불가</td><td>실제 빼안빼</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small" style="margin-top:10px">왼쪽과 오른쪽은 홀수 층은 −y면, 짝수 층은 +x면을 정면으로 볼 때 기준입니다. 이 순위는 이번 탑에만 해당합니다. 다음 탑은 다시 스캔해야 합니다.</p>
+
+  <h3>이 기준에서 읽을 수 있는 것</h3>
+  <ul>
+    <li><b>차이 2 px 이상인 8개 층은 패턴이 전부 맞았습니다.</b> 차이 1 px 이하인 4개 층은 1개만 맞았습니다.</li>
+    <li><b>같은 L15 블록을 재측정했을 때 2 px까지 달라졌으므로</b>(6 → 4 px, 첫 측정 때는 선이 탑에 닿음), 1 px 이하의 차이는 판단 근거가 되기 어렵습니다.</li>
+    <li><b>두 면을 합치면 연속이 늘었습니다:</b> +x만 4개, −y만 7개, 합치면 11개입니다. 오전 탑의 +x면에도 같은 기준을 적용하면 연속 8개인데, 그중 마지막 2개는 0 px 동점이라 운이 섞였습니다.</li>
+  </ul>
+  <p class="note"><b>믿을 수 있는 정도:</b> 결과를 본 뒤 찾은 기준이고, 데이터는 탑 2개, 차이 2 px 이상인 층 11개뿐입니다. 11이라는 숫자는 낙관적인 값으로 봐야 합니다. 8층과 13층은 빠지긴 했지만 뻑뻑했고, 이 차이는 px로 구분되지 않습니다.</p>
+</section>
+
+<section>
+  <h2>사진으로 본 차이</h2>
+  <h3>10층: 차이가 뚜렷해서 맞힌 층 (0 / 18 / 0 px, 실제 안빼안)</h3>
+  <div class="photos">
+    <figure><img src="img/f10l.jpg" alt="10층 왼쪽 블록, 틈이 거의 보이지 않음" loading="lazy"><figcaption>왼쪽 0 px</figcaption></figure>
+    <figure><img src="img/f10m.jpg" alt="10층 가운데 블록, 검은 틈이 두껍게 보임" loading="lazy"><figcaption>가운데 18 px</figcaption></figure>
+    <figure><img src="img/f10r.jpg" alt="10층 오른쪽 블록, 틈이 거의 보이지 않음" loading="lazy"><figcaption>오른쪽 0 px</figcaption></figure>
+  </div>
+  <h3>15층: 차이가 작아서 틀린 층 (4 / 6 / 7 px, 예측 빼안빼, 실제 안빼안)</h3>
+  <div class="photos">
+    <figure><img src="img/f15l.jpg" alt="15층 왼쪽 블록, 얇은 틈" loading="lazy"><figcaption>왼쪽 4 px</figcaption></figure>
+    <figure><img src="img/f15m.jpg" alt="15층 가운데 블록, 얇은 틈" loading="lazy"><figcaption>가운데 6 px</figcaption></figure>
+    <figure><img src="img/f15r.jpg" alt="15층 오른쪽 블록, 얇은 틈" loading="lazy"><figcaption>오른쪽 7 px</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>지금까지의 진행</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>날짜</th><th>내용</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr><td>11-02</td><td>+x면 전체 스캔 (다이얼 30)</td><td>21/21샷, 약 17분. 틈이 잡힌 6개 중 4개 빠짐</td></tr>
+      <tr><td>11-03 오전</td><td>다이얼 40으로 변경 (Dino 끝에서 블록까지 약 9 mm)</td><td>얇은 틈까지 보이지만, 다이얼 30보다 나은지 수치로는 아직 미확인</td></tr>
+      <tr><td>11-03 오전</td><td>새 탑 앞면과, 손으로 180° 돌린 뒷면 스캔</td><td>약 9분씩. 뽑히는 패턴이 층마다 빼안빼 또는 안빼안임을 확인</td></tr>
+      <tr><td>11-03 오후</td><td>두 번째 면으로 −y 추가 (+y는 오른팔이 닿지 않음)</td><td><code>cali_way_1</code> 경유는 선이 탑에 닿음. <code>home</code> 직행은 L15 시험에서 깨끗함</td></tr>
+      <tr><td>11-03 오후</td><td>새 탑 +x, −y 전체 스캔 후 손으로 전부 밀어 검증</td><td>−y 21/21샷, +x 15/18샷. 이 페이지의 결과</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>남은 문제</h2>
+  <ul>
+    <li><b>속도:</b> 면당 약 7분입니다. 그중 초점 탐색이 약 4분(141~150회, 회당 약 1.6초)으로 절반을 넘습니다.</li>
+    <li><b>빠진 샷:</b> +x의 3샷은 초점 탐색 범위를 좁게 설정해서 빠졌습니다. 범위를 넓히면 시간이 늘어나니 속도와 함께 조정해야 합니다.</li>
+    <li><b>모서리 오인:</b> 시작 높이가 틀리면 나뭇결을 모서리로 잡고 경고 없이 0 px로 기록할 수 있습니다(이번에 한 번 발생, 해당 세션은 버림).</li>
+    <li><b>자동 노출:</b> 카메라 밝기가 스스로 오르내리고 현재 설정으로는 고정되지 않습니다. 조명 효과도 아직 시험하지 않았습니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>다음 단계</h2>
+  <ol>
+    <li><b>한 번에 돌리는 코드:</b> Dino 집기 → +x, −y 스캔 → Dino 꽂기 → 뽑을 순서 파일 생성까지 명령 하나로 묶습니다. 순서 기준도 px 차이 순으로 바꿉니다.</li>
+    <li><b>속도 줄이기:</b> 줄일 수 있는 구간부터 줄입니다. 전체 목표는 5분(집기 1분, 면당 90초, 꽂기 1분)입니다.</li>
+    <li><b>새 탑으로 실기 시험:</b> 밀기 전에 순서를 고정하고, 실제로 연속으로 뽑아 몇 개까지 성공하는지 봅니다. 목표는 연속 8개입니다.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>전체 사진 (F = 층, L/M/R = 왼쪽/가운데/오른쪽)</h2>
+  <div class="sheets">
+    <figure><img src="img/sheet_px.jpg" alt="+x면 스캔 사진 18칸, 4층부터 14층까지. 3칸은 찍히지 않음" loading="lazy"><figcaption>+x면, 짝수 층 (15/18샷)</figcaption></figure>
+    <figure><img src="img/sheet_my.jpg" alt="−y면 스캔 사진 21장, 3층부터 15층까지" loading="lazy"><figcaption>−y면, 홀수 층 (21/21샷)</figcaption></figure>
+  </div>
+  <p class="small" style="margin-top:12px">세션: <code>autoscan_20261103_142245</code> (−y), <code>autoscan_20261103_144017</code> (+x). 화면 왼쪽과 오른쪽 기준입니다.</p>
+</section>
+
+</main>
+</body>
+</html>

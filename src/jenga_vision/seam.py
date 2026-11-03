@@ -46,7 +46,6 @@ import cv2
 import numpy as np
 
 from jenga_vision.camera import DinoCamera
-from jenga_vision.led import set_led
 from jenga_vision.long_edge import CORE_WINDOW, DARK_FRACTION, _smooth
 
 FRAMES_PER_SHOT = 3
@@ -293,9 +292,6 @@ def main() -> None:
     idx = next((n for n, (lay, b) in enumerate(checks) if f"{lay}:{b}" not in results), len(checks))
 
     with DinoCamera(args.device) as cam:
-        for _ in range(5):
-            cam.read()
-        set_led(False)
         print(f"Session: {session}   ({len(steps)} steps, layers {args.first}-{args.last})")
         try:
             while True:
@@ -374,7 +370,6 @@ def main() -> None:
                     elif key == ord("z") and idx > 0:
                         idx -= 1
         finally:
-            set_led(True)
             save_shots()
             save_results()
     cv2.destroyAllWindows()

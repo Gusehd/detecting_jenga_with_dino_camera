@@ -1,0 +1,229 @@
+{
+  "pick_dino": {
+    "note": "Dino를 거치대에서 쥐어서 들고 home으로",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {
+        "arm": "home"
+      },
+      {
+        "hand": "initial_1"
+      },
+      {
+        "arm": "before_grasp"
+      },
+      {
+        "arm": "final_grasp_1"
+      },
+      {
+        "hand_seq": "grasp_middle_1"
+      },
+      {
+        "arm": "final_grasp_1_1"
+      },
+      {
+        "arm": "final_grasp_1_2"
+      },
+      {
+        "arm": "before_grasp"
+      },
+      {
+        "arm": "home"
+      }
+    ]
+  },
+  "place_dino": {
+    "note": "pick_dino의 역순: 쥔 Dino를 거치대에 다시 꽂고 home으로",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {
+        "arm": "home"
+      },
+      {
+        "arm": "before_grasp"
+      },
+      {
+        "arm": "final_grasp_1_2"
+      },
+      {
+        "arm": "final_grasp_1_1"
+      },
+      {
+        "arm": "final_grasp_1"
+      },
+      {
+        "hand_seq": "release_middle_1"
+      },
+      {
+        "arm": "before_grasp"
+      },
+      {
+        "arm": "home"
+      }
+    ]
+  },
+  "pick_dino_left": {
+    "note": "DRAFT 왼손 Dino 꺼내기: 오른팔 자세를 거울 대칭(지그 y=0 가정), 왼손 자세는 오른손 값 복사. 확인 전에는 --step",
+    "arm": "left",
+    "hand": "l",
+    "steps": [
+      {
+        "arm": "auto_home"
+      },
+      {
+        "hand": "initial_1"
+      },
+      {
+        "arm": "auto_before_grasp"
+      },
+      {
+        "arm": "auto_final_grasp_1"
+      },
+      {
+        "hand_seq": "grasp_middle_1"
+      },
+      {
+        "arm": "auto_final_grasp_1_1"
+      },
+      {
+        "arm": "auto_final_grasp_1_2"
+      },
+      {
+        "arm": "auto_before_grasp"
+      },
+      {
+        "arm": "auto_home"
+      }
+    ]
+  },
+  "place_dino_left": {
+    "note": "DRAFT pick_dino_left의 역순",
+    "arm": "left",
+    "hand": "l",
+    "steps": [
+      {
+        "arm": "auto_home"
+      },
+      {
+        "arm": "auto_before_grasp"
+      },
+      {
+        "arm": "auto_final_grasp_1_2"
+      },
+      {
+        "arm": "auto_final_grasp_1_1"
+      },
+      {
+        "arm": "auto_final_grasp_1"
+      },
+      {
+        "hand_seq": "release_middle_1"
+      },
+      {
+        "arm": "auto_before_grasp"
+      },
+      {
+        "arm": "auto_home"
+      }
+    ]
+  },
+  "scan_right_draft": {
+    "note": "DRAFT 오른손: Dino 꺼내기 -> 탑 -y 면 -> +x 면 (자동 계획, 탑에서 40 mm) -> 꽂기. 촬영 없이 동작만",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {
+        "task": "pick_dino"
+      },
+      {
+        "route": "auto_scan_right_my"
+      },
+      {
+        "arm": "home"
+      },
+      {
+        "route": "auto_scan_right_px"
+      },
+      {
+        "arm": "home"
+      },
+      {
+        "task": "place_dino"
+      }
+    ]
+  },
+  "scan_left_draft": {
+    "note": "DRAFT 왼손: Dino 꺼내기 -> 탑 -x 면 -> +y 면 (자동 계획, 탑에서 40 mm) -> 꽂기. 촬영 없이 동작만",
+    "arm": "left",
+    "hand": "l",
+    "steps": [
+      {
+        "task": "pick_dino_left"
+      },
+      {
+        "route": "auto_scan_left_mx"
+      },
+      {
+        "arm": "auto_home"
+      },
+      {
+        "route": "auto_scan_left_py"
+      },
+      {
+        "arm": "auto_home"
+      },
+      {
+        "task": "place_dino_left"
+      }
+    ]
+  },
+  "verify_px": {
+    "note": "보정 검증: Dino 꺼내기 -> cali_way_1 -> +x 면 L13 왼/가운데/오른쪽 (초점보다 5 mm 바깥) -> cali_way_1 -> home -> 꽂기",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {
+        "task": "pick_dino"
+      },
+      {
+        "arm": "cali_way_1"
+      },
+      {
+        "route": "verify_px",
+        "speed": 5
+      },
+      {
+        "arm": "cali_way_1"
+      },
+      {
+        "arm": "home"
+      },
+      {
+        "task": "place_dino"
+      }
+    ]
+  },
+  "verify_my": {
+    "note": "보정 검증 2: Dino 꺼내기 -> home -> -y 면 L14 왼/가운데/오른쪽 (초점보다 15 mm 바깥) -> home -> 꽂기. home -> 면 이동에서 손목 j5가 약 180도 돈다",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {
+        "task": "pick_dino"
+      },
+      {
+        "route": "verify_my",
+        "speed": 5
+      },
+      {
+        "arm": "home",
+        "speed": 5
+      },
+      {
+        "task": "place_dino"
+      }
+    ]
+  }
+}

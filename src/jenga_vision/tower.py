@@ -38,7 +38,6 @@ import cv2
 import numpy as np
 
 from jenga_vision.camera import DinoCamera, GeminiCamera, find_gemini_color
-from jenga_vision.led import set_led
 from jenga_vision.long_edge import measure_single
 from jenga_vision.pick import LayerPick, layer_ranking
 
@@ -191,11 +190,6 @@ def main() -> None:
         device = find_gemini_color() if args.device is None else args.device
         cam_ctx = GeminiCamera(device, roi=args.roi, zoom=args.zoom)
     with cam_ctx as cam:
-        # The LED command is ignored until the camera is streaming.
-        for _ in range(5):
-            cam.read()
-        if dino:
-            set_led(False)
         print(f"Session: {session}   ({len(steps)} steps, layers {args.first}-{args.last})")
         try:
             while True:
@@ -269,8 +263,6 @@ def main() -> None:
                     elif key == ord("z") and idx > 0:
                         idx -= 1
         finally:
-            if dino:
-                set_led(True)
             save_shots()
             if shots:
                 save_picks()

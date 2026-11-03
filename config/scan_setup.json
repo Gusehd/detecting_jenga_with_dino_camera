@@ -1,0 +1,108 @@
+{
+  "_note": "Inputs of jenga-scan-plan. tower: teammate's tower_pose.yaml / tower_nominal.json (world frame, z0 = tower base). dino: Dino tip pose in the hand frame (ah?_base_link) = GUESS until measured: axis from the pick pose (Dino hangs tip-down in the jig), tip point not measured.",
+  "tower": {
+    "x": 0.4,
+    "y": 0.0,
+    "yaw_deg": -45.0,
+    "z0": 0.101,
+    "layer_h": 0.02186,
+    "block_len": 0.115,
+    "slot_pitch": 0.0385,
+    "layers": 17,
+    "_layer_h_note": "0.02186 from the 2026-10-30 check: taught L13 shots on +x were 6 mm lower than with 0.02236 (teammate value), relative to the L01 calibration"
+  },
+  "scan_layers": [
+    3,
+    15
+  ],
+  "dino": {
+    "axis_hand": [
+      -0.017,
+      -0.961,
+      -0.275
+    ],
+    "tip_hand": [
+      -0.009,
+      -0.12,
+      0.125
+    ],
+    "roll_deg": {
+      "right": 270.0,
+      "left": 90.0
+    },
+    "standoff_m": 0.0,
+    "tool_hand": {
+      "right": [
+        [
+          -0.260726,
+          0.018766,
+          -0.96523,
+          -0.113452
+        ],
+        [
+          -0.039033,
+          0.998789,
+          0.029961,
+          -0.02725
+        ],
+        [
+          0.964623,
+          0.045488,
+          -0.259678,
+          0.07796
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "tip_to_focus_m": 0.025,
+    "calibration": {
+      "right": {
+        "pose": "cali_way_3",
+        "q": [
+          0.07126,
+          0.63395,
+          0.55729,
+          0.86867,
+          3.17105,
+          1.22131,
+          2.8325
+        ],
+        "face": "+x",
+        "layer": 1,
+        "slot": 0,
+        "aim": "top edge",
+        "date": "2026-10-30 14:41"
+      }
+    },
+    "_tool_note": "tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, z = optical axis, y = image down). A missing arm uses the other one mirrored. tip_to_focus_m: Dino tip behind the focus point (measured at dial 30, only for the sim clearance)."
+  },
+  "faces": {
+    "right": [
+      "-y",
+      "+x"
+    ],
+    "left": [
+      "-x",
+      "+y"
+    ]
+  },
+  "approach_m": 0.08,
+  "layer_retreat_m": 0.03,
+  "seed": {
+    "right": "home",
+    "left": "auto_home"
+  },
+  "_roll_note": "roll_deg = where the hand sits around the Dino axis (per arm). Chosen by reachability 2026-10-29: right 270 covers -y and +x, left 90 covers -x and +y. The image then is rotated by a multiple of 90 deg: rotate it in software (image_rotate, to be set at the first real shot).",
+  "image_rotate_deg": {
+    "right": null,
+    "left": null
+  },
+  "jig_y": 0.0,
+  "_jig_note": "jig_y: world y of the Dino jig centre (m). 0 = robot centre line (assumed, NOT measured); left pick poses = right ones mirrored and shifted by 2*jig_y.",
+  "aim": 1.0
+}

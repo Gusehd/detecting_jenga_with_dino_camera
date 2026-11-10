@@ -132,7 +132,12 @@ PARALLEL_M = 0.001  # a straight move that changes the distance to the face by l
 # Named sets of settings, used as defaults (an option given by hand still wins): --preset=v1
 #   v1 (2026-11-10): --fast --quick --sweep --shot-settle-s 0.3. Both faces 2.8 min of scanning, with the quick
 #   pick / place 3 min 40 s; tower of 2026-11-10 (after it was tidied at 11:50): 15 in a row by pushing.
-PRESETS = {"v1": {"sweep": True, "shot_settle_s": 0.3}}
+#   v2 (DRAFT 2026-11-10, not run on the robot): v1 + 0.2 s settle, 100 mm/s along the face, 60 deg/s to and
+#   from the face, one camera for both faces, the next face starts with the Dino turn / scale, narrow 2nd reference,
+#   the search starts where the last scan of the face found its first block.
+PRESETS = {"v1": {"sweep": True, "shot_settle_s": 0.3},
+           "v2": {"sweep": True, "shot_settle_s": 0.2, "parallel_speed": 100.0, "approach_speed": 60.0,
+                  "keep_camera": True, "carry_dino": True, "narrow_ref2": True, "prior_from_last": True}}
 LEVEL_DEG, MAX_ROLL_DEG = 0.7, 10.0
 # --blur-test: passes without stopping, to see how much moving changes the gap px (2026-11-10)
 BLUR_MAX_MM_S = 60.0  # passes along the face at a fixed distance (user OK to raise from 30, 2026-11-10)
@@ -147,6 +152,7 @@ AE_RECOVER_MAX_S = 1.6  # ... or this long after it (it climbs 0.5-1.5 s, 2026-1
 AE_STEADY = 0.08  # the frames of one shot within this of each other
 AE_MAX_WAIT_S = 2.0  # then the frames are taken anyway (and counted)
 FRAME_LAG_S = 0.05  # a frame read this long after the wait was exposed after it
+LAST_START_FILE = ".last_start.json"  # in --out: per face, depth and height of the first block of the last scan
 FAKE_FPS = 24.0  # the Dino at 640x480 while moving (blur test 2026-11-10)
 GLIDE_MIN_FRAMES = 3  # good frames per block in a glide, else that block is shot stopped  # level the gap when tilted more than this; limit of the correction
 
@@ -673,8 +679,9 @@ class FaceState:
 
 
 class Scanner:
-    def __init__(self, args, mover: Mover, cam, session: Path):
+    def __init__(self, args, mover: Mover, cam, session: Path, carry: dict | None = None):
         self.args, self.mover, self.cam, self.session = args, mover, cam, session
+        self.carry = carry or {}
         cam.settle = args.settle_s
         cam.dash = args.dash
         self.dash = args.dash
@@ -682,7 +689,7 @@ class Scanner:
         self.max_in = args.max_in_mm / 1000
         self.last_depth = None  # depth found on the previous block: the limit follows it
         self.layer_h = json.loads(SETUP_FILE.read_text())["tower"]["layer_h"]
-        self.roll = 0.0
+        self.roll = self.carry.get("roll", 0.0)  # the Dino's turn in the hand: the other face's is a start
         self.log = (session / "focus_log.csv").open("w", newline="")
         self.log_w = csv.writer(self.log)
         self.log_w.writerow(["time", "layer", "slot", "screen", "depth_mm", "down_mm", "roll_deg", "focus", "edge_row",
@@ -874,7 +881,8 @@ class Scanner:
 
     def scan_face(self, face: str, rows: dict[int, list[Shot]], far_in, far_out) -> FaceState:
         self.face = face
-        st = FaceState(depth_m=self.args.prior_depth_mm / 1000, down_m=self.args.prior_down_mm / 1000)
+        st = FaceState(depth_m=self.args.prior_depth_mm / 1000, down_m=self.args.prior_down_mm / 1000,
+                       roll=self.roll, mm_per_px=self.carry.get("mm_per_px"))
         self.enter(face, far_in)
         if self.args.blur_test is not None and not self.args.motion_only:
             return self.blur_test(face, rows, far_out, st)
@@ -975,7 +983,7 @@ class Scanner:
             if st.rows:
                 self.back_off(normal, RETREAT_M)
             self.mover.line_to(mid.pose(st.depth_m - RETREAT_M, st.down_m, self.roll))
-            got = self.lock_on(mid, st, wide=True)
+            got = self.lock_on(mid, st, wide=not (self.args.narrow_ref2 and ref))  # near the first one's depth
             if got is None:
                 return False
             ref[layer] = got[:2]
@@ -1519,6 +1527,8 @@ def run_main(args) -> None:
         return report()
 
     sessions = []
+    args.camera_holder = {} if args.keep_camera and args.send and not args.fake else None
+    args.carry = {} if args.carry_dino else None
     for face, setting in faces:
         print(f"\n===== scan {face} =====")
         scan_args = argparse.Namespace(**{**vars(args), **setting, "no_prompt": True})
@@ -1530,6 +1540,8 @@ def run_main(args) -> None:
         if session:
             sessions.append(session)
         if not finished:
+            if args.camera_holder and args.camera_holder.get("cam"):
+                args.camera_holder["cam"].release()
             print(f"\nstopped in the {face} scan: the Dino stays in the hand. Move the arm clear of the tower, then "
                   "place the Dino with jenga-task place_dino.")
             if sessions:
@@ -1548,6 +1560,8 @@ def run_main(args) -> None:
         print("sessions: " + " ".join(map(str, sessions)))
         args.dash.event(order=order_for_page(load_gaps(sessions)))
 
+    if args.camera_holder and args.camera_holder.get("cam"):
+        args.camera_holder["cam"].release()
     if not args.no_place and not timed_task("place_dino"):
         print("stopped in place_dino: the pull order above is still valid")
     args.dash.event(stage="done", ended=time.time())
@@ -1595,6 +1609,13 @@ def scan_main(args) -> tuple[Path | None, bool]:
     first_q, last_q = planned_ends(args, tool, tower, face, layers, seed, plan_setup)
     far_in, far_out = last_q if args.top_first else first_q, last_q
 
+    last_file = args.out / LAST_START_FILE
+    if args.prior_from_last and last_file.exists():
+        last = json.loads(last_file.read_text()).get(face)
+        if last:
+            print(f"   start like the last {face} scan ({last['session']}): depth {last['depth_mm']:+.1f} mm, "
+                  f"down {last['down_mm']:+.1f} mm (instead of {args.prior_depth_mm:+.1f}, {args.prior_down_mm:+.1f})")
+            args.prior_depth_mm, args.prior_down_mm = last["depth_mm"], last["down_mm"]
     session = args.out / time.strftime("autoscan_%Y%m%d_%H%M%S")
     session.mkdir(parents=True, exist_ok=True)
     mover = Mover(args.arm, tool, args.send, poses[args.start], args.joint_speed, args.line_speed)
@@ -1603,9 +1624,17 @@ def scan_main(args) -> tuple[Path | None, bool]:
     first_shot = next(iter(rows.values()))[0]
     mover.face = (first_shot.aim, first_shot.normal)
     fake = args.fake or not args.send
-    cam = (FakeCamera(mover, rows, args.fake_depth_mm, args.fake_lean_mm, args.fake_drop_mm, args.window,
-                      args.fake_roll_deg)
-           if fake else RealCamera(args.device, args.window))
+    holder = getattr(args, "camera_holder", None)  # run --keep-camera: one Dino reader for all faces
+    if fake:
+        cam = FakeCamera(mover, rows, args.fake_depth_mm, args.fake_lean_mm, args.fake_drop_mm, args.window,
+                         args.fake_roll_deg)
+    elif holder is not None and holder.get("cam"):
+        cam = holder["cam"]
+    else:
+        cam = RealCamera(args.device, args.window)
+        if holder is not None:
+            holder["cam"] = cam
+    keep = holder is not None and holder.get("cam") is cam
     mode = ("SEND " if args.send else "VIRTUAL ") + ("(fake camera)" if fake else "(Dino)")
     print(f"autoscan {face}, {sum(len(r) for r in rows.values())} end faces, {mode}; session {session}")
     if args.send:
@@ -1623,8 +1652,18 @@ def scan_main(args) -> tuple[Path | None, bool]:
     t0 = time.time()
     st = None
     finished = False
+    carry = getattr(args, "carry", None)  # run --carry-dino: what the first face found about the Dino
+    scanner = Scanner(args, mover, cam, session, carry)
     try:
-        st = Scanner(args, mover, cam, session).scan_face(face, rows, far_in, far_out)
+        st = scanner.scan_face(face, rows, far_in, far_out)
+        if carry is not None:
+            carry.update(roll=scanner.roll, mm_per_px=st.mm_per_px)
+        if st.rows:  # where the first block of this face was found: the start of the next scan
+            data = json.loads(last_file.read_text()) if last_file.exists() else {}
+            first = st.rows[0]
+            data[face] = {"depth_mm": first["depth_mm"], "down_mm": first["down_mm"], "layer": first["layer"],
+                          "session": session.name}
+            last_file.write_text(json.dumps(data, indent=2))
         a = approach(args)
         mover.joint_move(poses[args.end], args.end, a["speed"], None if args.via else a["slow_start"], a["min_s"])
         finished = True
@@ -1633,7 +1672,8 @@ def scan_main(args) -> tuple[Path | None, bool]:
     except ScanError as e:
         print(f"\nSTOPPED: {e}")
     finally:
-        cam.release()
+        if not keep:
+            cam.release()
         mover.shutdown()
         cv2.destroyAllWindows()
     print(f"\n{time.time() - t0:.0f} s here, arm motion {mover.seconds / 60:.1f} min "
@@ -1709,6 +1749,13 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
                    help="mm/s of the passes along the layer (--blur-test)")
     p.add_argument("--blur-v-speeds", type=float, nargs="*", default=[2.0, 5.0, 10.0],
                    help="mm/s of the passes up / down over the block with the widest stopped gap (--blur-test)")
+    p.add_argument("--keep-camera", action="store_true", help="run: one Dino reader for all faces")
+    p.add_argument("--prior-from-last", action="store_true",
+                   help="start the search at the depth and edge height of the last scan of this face (same place)")
+    p.add_argument("--carry-dino", action="store_true",
+                   help="run: start the next face with the Dino turn and image scale the face before found")
+    p.add_argument("--narrow-ref2", action="store_true",
+                   help="--sweep: the second reference searches near the first one's depth (wide only if that fails)")
     p.add_argument("--shot-settle-s", type=float, default=SETTLE_S,
                    help="wait after stopping at a block before its shot (--sweep, --blur-test)")
     p.add_argument("--glide", action="store_true", help="DRAFT: depth and height like --sweep, but every layer in "
@@ -1794,7 +1841,7 @@ def main() -> None:
         if name not in PRESETS:
             raise SystemExit(f"--preset: {', '.join(PRESETS)}")
         for o in (p, u):
-            o.set_defaults(**FAST, **QUICK, **PRESETS[name])
+            o.set_defaults(**{**FAST, **QUICK, **PRESETS[name]})
     args = parser.parse_args()
     if args.cmd == "compare":
         compare_main(args.a, args.b)

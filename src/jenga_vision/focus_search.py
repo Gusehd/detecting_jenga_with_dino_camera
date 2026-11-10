@@ -7,7 +7,12 @@ safe, so the search looks outwards first and goes in only if nothing better is t
 
     arrived on the peak     out 3 steps, back, in 3 steps: both sides fall, done
     peak further out        out until it falls behind the peak; never goes in
-    peak further in         out to the limit (nothing), back, in until it falls
+    peak further in         out until the values have fallen OUT_DROPS times in a row (the
+                            outside only gets worse), back, in until it falls
+
+Falling twice in a row going out cannot happen when the start is deeper than the peak (the
+values rise going out), also not with a dip of 0.8 in one sample, so it never leads inwards
+from too deep. Before 2026-11-10 it walked out to the limit: 5 samples (5.5 s) per search.
 
 Real curve at dial 30: half value about 4 mm from the peak on both sides, 4-7 % down
 at 1 mm, 15-25 % at 2 mm, nearly flat from 15 mm on, floor about 4.
@@ -25,6 +30,8 @@ FALL = 0.88  # a sample below this x the best one has clearly fallen (hold test:
 FALLS = 2  # that many samples in a row
 RISEN = 0.75  # the start below this x the best one: truly lower, not just one low sample
 MIN_PEAK = 12.0  # floor about 4: lower than this is not a peak, wherever it stands
+OUT_DROP = 0.88  # going out, each sample below this x the one before ... (0.85 missed 1.85 -> 1.61 on the robot)
+OUT_DROPS = 2  # ... that many times in a row: nothing better further out
 
 
 @dataclass(frozen=True)
@@ -59,9 +66,14 @@ def find_peak(measure: Callable[[float], float], start: float, out_limit: float,
                 return True
         return False
 
+    def only_worse_out() -> bool:
+        out = sorted((d for d in seen if d <= start), reverse=True)  # start, then outwards
+        drops = [seen[b] < OUT_DROP * seen[a] for a, b in zip(out, out[1:])]
+        return len(drops) >= OUT_DROPS and all(drops[-OUT_DROPS:])
+
     def walk(sign: int, limit: float) -> None:
         d = start
-        while not fallen(sign):
+        while not fallen(sign) and not (sign < 0 and only_worse_out()):
             d += sign * step
             if (d - limit) * sign > 1e-9:
                 return

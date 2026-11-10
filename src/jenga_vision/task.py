@@ -9,6 +9,13 @@ sequences (config/hand_sequences.json):
         {"hand": "initial_1"},              move all fingers to a saved hand pose
         {"hand_seq": "grasp_middle_1"},     run a hand sequence (finger by finger)
         {"arm": "final_grasp_1", "speed": 5},   per-step speed (deg/s) overrides
+        {"arm": "final_grasp_1", "speed": 40, "slow_end_deg": 15, "slow_speed": 10},
+                                            the last 15 deg (largest joint) of the same straight
+                                            joint path at 10 deg/s; also "slow_start_deg"
+        {"arm": "final_grasp_1_1", "speed": 10, "min_s": 0.8},  shortest move time (default 2 s)
+        {"hand_seq": "grasp_middle_1", "speed": 45, "pause": 0.15},  finger deg/s, wait between fingers
+        {"arm": "final_grasp_1_1_1109", "line": true, "line_speed": 10},  the hand on a straight line
+                                            (IK every few mm, soft start and stop), peak mm/s
         {"route": "auto_scan_right_my"},    move through a jenga-route route (config/arm_routes.json)
         {"task": "pick_dino"},              all steps of another task (same arm and hand)
         ...]}
@@ -16,7 +23,7 @@ sequences (config/hand_sequences.json):
 Each step starts when the previous one has finished. Arm moves go straight to
 /xarm7_<arm>_controller/follow_joint_trajectory (no planning, no collision
 check), joint-interpolated, no joint faster than --arm-speed deg/s (at least
-2 s). The hand command moves at --hand-speed deg/s like jenga-hand.
+2 s, or "min_s"). An arm step that is already there (< 0.05 deg) is skipped. The hand command moves at --hand-speed deg/s like jenga-hand.
 
 By default nothing is sent (dry run: the plan with move times is printed).
 --send really moves; --step waits for Enter before every step (and every route
@@ -35,10 +42,17 @@ import math
 import time
 from pathlib import Path
 
+import numpy as np
+
 from jenga_vision import arm_route, arm_slider, hand_slider
 
 TASKS_FILE = Path("config/tasks.json")
 STEP_KINDS = ("arm", "hand", "hand_seq", "route")
+STATE_WAIT_S = 20.0  # first /joint_states with --send: robot PC on Jazzy, discovery takes seconds (2026-11-09)
+LINE_DT_S = 0.05  # time between the points of a straight move
+LINE_MAX_STEP_DEG = 3.0  # IK step between two points; more = the arm would change configuration
+LINE_END_DEG = 2.0  # the IK end of a straight move this far from the saved pose (7 joints: null space) = stop
+ALREADY_THERE_DEG = 0.05  # an arm step this close to its pose is skipped
 
 
 def load_json(path: Path) -> dict:
@@ -51,6 +65,7 @@ def load_json(path: Path) -> dict:
 def describe(step: dict) -> str:
     kind = next(k for k in STEP_KINDS if k in step)
     extra = f"  (speed {step['speed']})" if "speed" in step else ""
+    extra += f"  (slow {step['slow_speed']} deg/s near the Dino)" if "slow_speed" in step else ""
     return f"{kind:8s} {step[kind]}{extra}"
 
 
@@ -102,9 +117,62 @@ def check_task(task: dict, arm_poses: dict, hand_poses: dict, sequences: dict, r
     return errors
 
 
+def line_path(arm: str, start: list[float], target: list[float], mm_s: float) -> tuple[list[list[float]], float]:
+    """Joints every LINE_DT_S along a straight line of the hand from `start` to `target`
+    (orientation turning evenly), cosine-timed (soft start and stop, peak `mm_s`); (points, seconds)."""
+    from jenga_vision.kinematics import Chain, axis_angle, transform
+    chain = Chain(arm)
+    a, b = chain.fk(np.array(start)), chain.fk(np.array(target))
+    dp = b[:3, 3] - a[:3, 3]
+    rel = a[:3, :3].T @ b[:3, :3]
+    ang = math.acos(max(-1.0, min(1.0, (np.trace(rel) - 1) / 2)))
+    axis = np.array([rel[2, 1] - rel[1, 2], rel[0, 2] - rel[2, 0], rel[1, 0] - rel[0, 1]])
+    axis = axis / np.linalg.norm(axis) if np.linalg.norm(axis) > 1e-9 else np.array([0, 0, 1.0])
+    seconds = max(arm_slider.MIN_MOVE_TIME / 2, np.linalg.norm(dp) * 1000 / mm_s * math.pi / 2)
+    n = max(2, math.ceil(seconds / LINE_DT_S))
+    q0, q1 = np.array(start, float), np.array(target, float)
+    q, points = q0, []
+    for i in range(1, n + 1):
+        s = (1 - math.cos(math.pi * i / n)) / 2
+        goal = transform(a[:3, :3] @ axis_angle(axis, ang * s), a[:3, 3] + dp * s)
+        nq = chain.ik(goal, q0 + (q1 - q0) * s)  # seeded on the joint path: the elbow ends where it was saved
+        if nq is None:
+            raise RuntimeError("IK failed on the straight move")
+        if math.degrees(np.max(np.abs(nq - q))) > LINE_MAX_STEP_DEG:
+            raise RuntimeError("the straight move would change the arm configuration")
+        points.append(nq)
+        q = nq
+    off = math.degrees(np.max(np.abs(q - np.array(target))))
+    if off > LINE_END_DEG:
+        raise RuntimeError(f"the straight move ends {off:.1f} deg (largest joint) from the saved pose")
+    points[-1] = np.array(target, float)
+    return [list(map(float, p)) for p in points], seconds
+
+
+def step_parts(start: list[float], target: list[float], speed: float, step: dict) -> list[tuple[list[float], float]]:
+    """[(joints, deg/s)] along the straight joint path of an arm step: slow near the Dino at its
+    start ("slow_start_deg") or end ("slow_end_deg"), measured on the largest joint."""
+    slow = step.get("slow_speed", speed)
+    first, last = step.get("slow_start_deg", 0.0), step.get("slow_end_deg", 0.0)
+    biggest = max(abs(math.degrees(t - c)) for t, c in zip(target, start))
+    if not first and not last:
+        return [(target, speed)]
+    if biggest <= first + last:  # a short move is all near the Dino
+        return [(target, slow)]
+    def along(deg: float) -> list[float]:
+        return [c + (t - c) * deg / biggest for t, c in zip(target, start)]
+
+    parts = [(along(first), slow)] if first else []
+    if last:
+        parts.append((along(biggest - last), speed))
+    parts.append((target, slow if last else speed))
+    return parts
+
+
 class Runner:
     def __init__(self, task: dict, args: argparse.Namespace):
         self.task, self.args = task, args
+        self.moved_s = 0.0  # planned arm + finger time
         self.arm_poses = load_json(arm_slider.POSES_FILE).get(task["arm"], {})
         self.hand_poses = load_json(hand_slider.POSES_FILE).get(task["hand"], {})
         self.sequences = load_json(hand_slider.SEQUENCES_FILE)
@@ -122,9 +190,14 @@ class Runner:
         self.hand_cmd: list[float] | None = None
 
     def wait_states(self) -> None:
-        for _ in range(30):
+        wait = STATE_WAIT_S if self.args.send else 3.0
+        t0, shown = time.time(), 0
+        while time.time() - t0 < wait:
             if self.arm.current() is not None and self.hand.current() is not None:
                 break
+            if self.args.send and time.time() - t0 > shown + 5:
+                shown += 5
+                print(f"   waiting for /joint_states ({shown} s) ...")
             time.sleep(0.1)
         self.arm_q, self.hand_cmd = self.arm.current(), self.hand.current()
         if self.args.send:
@@ -138,16 +211,23 @@ class Runner:
             print("(no /joint_states: dry run times the first moves from the first saved poses)")
 
     # --- arm ---------------------------------------------------------------------------
-    def arm_move(self, target: list[float], speed: float) -> None:
+    def arm_move(self, target: list[float], speed: float, min_s: float = arm_slider.MIN_MOVE_TIME) -> None:
         start = self.arm.current() if self.args.send else self.arm_q
         start = start or target
         biggest = max(abs(math.degrees(t - c)) for t, c in zip(target, start))
-        seconds = max(arm_slider.MIN_MOVE_TIME, biggest / max(speed, 0.1))
-        print(f"   largest joint change {biggest:.1f} deg, {seconds:.1f} s")
         self.arm_q = list(target)
+        if biggest < ALREADY_THERE_DEG:
+            print(f"   already there ({biggest:.2f} deg), skipped")
+            return
+        seconds = max(min_s, biggest / max(speed, 0.1))
+        self.moved_s += seconds
+        print(f"   largest joint change {biggest:.1f} deg, {seconds:.1f} s")
         if not self.args.send:
             return
         self.arm.move(target, seconds)
+        self.wait_arm(target)
+
+    def wait_arm(self, target: list[float]) -> None:
         try:
             while not self.arm.done.wait(0.1):
                 pass
@@ -161,6 +241,25 @@ class Runner:
         err = max(abs(math.degrees(t - c)) for t, c in zip(target, cur))
         print(f"   reached ({self.arm.result}), largest joint error {err:.2f} deg")
 
+    def arm_line(self, target: list[float], mm_s: float) -> None:
+        start = (self.arm.current() if self.args.send else self.arm_q) or target
+        points, seconds = line_path(self.task["arm"], start, target, mm_s)
+        print(f"   straight line, {len(points)} points, peak {mm_s:.0f} mm/s, {seconds:.1f} s")
+        self.arm_q = list(target)
+        self.moved_s += seconds
+        if not self.args.send:
+            return
+        self.arm.move_path(points, seconds)
+        self.wait_arm(target)
+
+    def arm_step(self, step: dict) -> None:
+        target = self.arm_poses[step["arm"]]
+        if step.get("line"):
+            return self.arm_line(target, step.get("line_speed", 10.0))
+        start = (self.arm.current() if self.args.send else self.arm_q) or target
+        for q, speed in step_parts(start, target, step.get("speed", self.args.arm_speed), step):
+            self.arm_move(q, speed, step.get("min_s", arm_slider.MIN_MOVE_TIME))
+
     # --- hand --------------------------------------------------------------------------
     def hand_move(self, values: list[float], joints: list[int], speed: float) -> None:
         if self.hand_cmd is None:  # dry run without robot state
@@ -170,6 +269,7 @@ class Runner:
             target[i] = hand_slider.clamp(i, values[i])
         biggest = max(abs(math.degrees(t - c)) for t, c in zip(target, self.hand_cmd))
         print(f"   largest finger joint change {biggest:.1f} deg, {biggest / max(speed, 0.1):.1f} s")
+        self.moved_s += biggest / max(speed, 0.1)
         if not self.args.send:
             self.hand_cmd = target
             return
@@ -189,21 +289,24 @@ class Runner:
     def hand_pose(self, name: str, speed: float) -> None:
         self.hand_move(self.hand_poses[name], list(range(20)), speed)
 
-    def hand_sequence(self, name: str, speed: float) -> None:
+    def hand_sequence(self, name: str, speed: float, pause: float = hand_slider.STEP_PAUSE) -> None:
         for fingers, pose in self.sequences[name]:
             print(f"   {'+'.join(fingers)} -> {pose}")
             self.hand_move(self.hand_poses[pose], hand_slider.step_joints(fingers), speed)
+            self.moved_s += pause
             if self.args.send:
-                time.sleep(hand_slider.STEP_PAUSE)
+                time.sleep(pause)
 
     # --- run ---------------------------------------------------------------------------
-    def run(self) -> None:
+    def run(self) -> bool:
+        """True when every step has finished."""
         steps = self.task["steps"]
         mode = "SEND" if self.args.send else "DRY RUN (nothing is sent)"
         pace = "Enter before every step" if self.args.step else "continuous"
         print(f"task: {self.task.get('note', '')}\n{len(steps)} steps, arm {self.args.arm_speed} deg/s, "
               f"hand {self.args.hand_speed} deg/s, {pace}, {mode}")
         self.wait_states()
+        t0 = time.time()
         if self.args.start > 1:
             print(f"starting at step {self.args.start}: the first move starts from where the robot is")
         for n, step in enumerate(steps, 1):
@@ -212,25 +315,47 @@ class Runner:
             print(f"\n[{n}/{len(steps)}] {describe(step)}")
             if self.args.step and input("   Enter = go, q = quit > ").strip().lower() == "q":
                 print("quit")
-                return
+                return False
             if "arm" in step:
-                self.arm_move(self.arm_poses[step["arm"]], step.get("speed", self.args.arm_speed))
+                self.arm_step(step)
             elif "route" in step:
                 points = self.routes[step["route"]]
                 for k, point in enumerate(points, 1):
                     print(f"   route point {k}/{len(points)}: {'via ' if point['via'] else 'shot'} {point['label']}")
                     if self.args.step and k > 1 and input("   Enter = go, q = quit > ").strip().lower() == "q":
                         print("quit")
-                        return
+                        return False
                     self.arm_move(point["q"], step.get("speed", self.args.arm_speed))
             elif "hand" in step:
                 self.hand_pose(step["hand"], step.get("speed", self.args.hand_speed))
             else:
-                self.hand_sequence(step["hand_seq"], step.get("speed", self.args.hand_speed))
-        print("\ntask done")
+                self.hand_sequence(step["hand_seq"], step.get("speed", self.args.hand_speed),
+                                   step.get("pause", hand_slider.STEP_PAUSE))
+        print(f"\ntask done, planned {self.moved_s:.1f} s" + (f", took {time.time() - t0:.1f} s" if self.args.send else ""))
+        return True
 
     def shutdown(self) -> None:
         arm_slider.stop_node(self.node)
+
+
+def run_task(name: str, args: argparse.Namespace) -> bool:
+    """Run a task of config/tasks.json; args: send, arm_speed, hand_speed, step, start. True when it finished."""
+    tasks = load_json(TASKS_FILE)
+    if name not in tasks:
+        raise SystemExit(f"no task '{name}' in {TASKS_FILE} (have: {', '.join(tasks)})")
+    try:
+        runner = Runner(expand(tasks[name], tasks), args)
+    except ImportError:
+        raise SystemExit("rclpy not found: run `source /opt/ros/humble/setup.bash` first")
+    try:
+        return runner.run()
+    except KeyboardInterrupt:
+        print("\nCtrl+C: arm move cancelled (arm holds), hand command stopped where it was")
+    except (RuntimeError, EOFError) as e:
+        print(f"\nstopped: {e}")
+    finally:
+        runner.shutdown()
+    return False
 
 
 def main() -> None:
@@ -250,20 +375,7 @@ def main() -> None:
             for n, step in enumerate(task["steps"], 1):
                 print(f"  {n:2d} {describe(step)}")
         return
-    if args.task not in tasks:
-        raise SystemExit(f"no task '{args.task}' in {TASKS_FILE} (have: {', '.join(tasks)})")
-    try:
-        runner = Runner(expand(tasks[args.task], tasks), args)
-    except ImportError:
-        raise SystemExit("rclpy not found: run `source /opt/ros/humble/setup.bash` first")
-    try:
-        runner.run()
-    except KeyboardInterrupt:
-        print("\nCtrl+C: arm move cancelled (arm holds), hand command stopped where it was")
-    except (RuntimeError, EOFError) as e:
-        print(f"\nstopped: {e}")
-    finally:
-        runner.shutdown()
+    run_task(args.task, args)
 
 
 if __name__ == "__main__":

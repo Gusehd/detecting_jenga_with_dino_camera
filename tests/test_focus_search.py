@@ -135,3 +135,52 @@ def test_peak_beyond_the_outer_limit_does_not_go_in():
     p = find_peak(measure, 12.0, 8.0, 20.0)  # peak at 0, out limit 8
     assert not p.found and "rising" in p.reason
     assert max(seen) <= 12.0
+
+
+# Dial 40 on the robot, -y L14 middle, 2026-11-10 (autoscan_20261110_113003): first search, 2 mm steps,
+# depth (mm, + = deeper) -> focus. Its peak is near -3.3; the inner side is mirrored.
+DIAL40 = {-20: 0.69, -18: 0.71, -16: 0.76, -14: 0.86, -12: 1.07, -10: 1.69, -8: 3.85, -6: 11.36, -4: 22.92,
+          -3.3: 30.0, -2: 16.86}
+
+
+def dial40(depth: float) -> float:
+    d = depth if depth <= -3.3 else -3.3 - (depth + 3.3)
+    xs = sorted(DIAL40)
+    return float(np.interp(d, xs, [DIAL40[x] for x in xs]))
+
+
+@pytest.mark.parametrize("start", [-10.0, -8.0, -6.0])
+def test_peak_further_in_does_not_walk_out_to_the_limit(start):
+    """Dial 40 falls all the way out: two drops in a row end the outward walk (it used to walk
+    5 more samples out to the limit)."""
+    seen = []
+
+    def measure(d):
+        seen.append(d)
+        return dial40(d)
+
+    p = find_peak(measure, start, start - 10.0, start + 25.0, step=2.0, fall=0.85, falls=1)
+    assert p.found and abs(p.depth + 3.3) <= 1.0
+    assert min(seen) >= start - 2 * 2.0 - 1e-9  # two steps out, not five
+
+
+@pytest.mark.parametrize("off", [-6, -5, -4])
+def test_dial30_falling_side_also_stops_early(off):
+    c = Curve("line")
+    seen = []
+
+    def measure(d):
+        seen.append(d)
+        return c.measure(d)
+
+    p = find_peak(measure, float(off), off - 20.0, off + 20.0)
+    assert p.found and abs(p.depth) <= 1.0
+    assert min(seen) >= off - 2 * 1.0 - 1e-9
+
+
+def test_dips_while_rising_out_never_stop_the_outward_walk():
+    """From too deep the values rise going out; even dips of 0.8 cannot fake two drops."""
+    for seed in range(200):
+        c = Curve("line", seed, noise=0.02, dip=0.3)
+        search(c, 8.0)
+        assert c.deepest <= 8.0 + 3.0

@@ -1,67 +1,31 @@
 {
   "pick_dino": {
-    "note": "Dino를 거치대에서 쥐어서 들고 home으로",
+    "note": "Dino out of the screwed jig (2026-11-09) and to home, slow (10 deg/s, 5 near the jig, straight lift); the same poses as pick_dino_quick",
     "arm": "right",
     "hand": "r",
     "steps": [
-      {
-        "arm": "home"
-      },
-      {
-        "hand": "initial_1"
-      },
-      {
-        "arm": "before_grasp"
-      },
-      {
-        "arm": "final_grasp_1"
-      },
-      {
-        "hand_seq": "grasp_middle_1"
-      },
-      {
-        "arm": "final_grasp_1_1"
-      },
-      {
-        "arm": "final_grasp_1_2"
-      },
-      {
-        "arm": "before_grasp"
-      },
-      {
-        "arm": "home"
-      }
+      {"arm": "home"},
+      {"hand": "initial_1"},
+      {"arm": "before_grasp"},
+      {"arm": "final_grasp_1_1109_xp5", "slow_end_deg": 15, "slow_speed": 5},
+      {"hand_seq": "grasp_middle_1"},
+      {"arm": "final_grasp_1_1_1109_xp5", "line": true, "line_speed": 10},
+      {"arm": "before_grasp"},
+      {"arm": "home"}
     ]
   },
   "place_dino": {
-    "note": "pick_dino의 역순: 쥔 Dino를 거치대에 다시 꽂고 home으로",
+    "note": "pick_dino backwards: the Dino back into the screwed jig, slow",
     "arm": "right",
     "hand": "r",
     "steps": [
-      {
-        "arm": "home"
-      },
-      {
-        "arm": "before_grasp"
-      },
-      {
-        "arm": "final_grasp_1_2"
-      },
-      {
-        "arm": "final_grasp_1_1"
-      },
-      {
-        "arm": "final_grasp_1"
-      },
-      {
-        "hand_seq": "release_middle_1"
-      },
-      {
-        "arm": "before_grasp"
-      },
-      {
-        "arm": "home"
-      }
+      {"arm": "home"},
+      {"arm": "before_grasp"},
+      {"arm": "final_grasp_1_1_1109_xp5", "slow_end_deg": 15, "slow_speed": 5},
+      {"arm": "final_grasp_1_1109_xp5", "line": true, "line_speed": 10},
+      {"hand_seq": "release_middle_1"},
+      {"arm": "before_grasp", "slow_start_deg": 15, "slow_speed": 5},
+      {"arm": "home"}
     ]
   },
   "pick_dino_left": {
@@ -69,33 +33,15 @@
     "arm": "left",
     "hand": "l",
     "steps": [
-      {
-        "arm": "auto_home"
-      },
-      {
-        "hand": "initial_1"
-      },
-      {
-        "arm": "auto_before_grasp"
-      },
-      {
-        "arm": "auto_final_grasp_1"
-      },
-      {
-        "hand_seq": "grasp_middle_1"
-      },
-      {
-        "arm": "auto_final_grasp_1_1"
-      },
-      {
-        "arm": "auto_final_grasp_1_2"
-      },
-      {
-        "arm": "auto_before_grasp"
-      },
-      {
-        "arm": "auto_home"
-      }
+      {"arm": "auto_home"},
+      {"hand": "initial_1"},
+      {"arm": "auto_before_grasp"},
+      {"arm": "auto_final_grasp_1"},
+      {"hand_seq": "grasp_middle_1"},
+      {"arm": "auto_final_grasp_1_1"},
+      {"arm": "auto_final_grasp_1_2"},
+      {"arm": "auto_before_grasp"},
+      {"arm": "auto_home"}
     ]
   },
   "place_dino_left": {
@@ -103,30 +49,14 @@
     "arm": "left",
     "hand": "l",
     "steps": [
-      {
-        "arm": "auto_home"
-      },
-      {
-        "arm": "auto_before_grasp"
-      },
-      {
-        "arm": "auto_final_grasp_1_2"
-      },
-      {
-        "arm": "auto_final_grasp_1_1"
-      },
-      {
-        "arm": "auto_final_grasp_1"
-      },
-      {
-        "hand_seq": "release_middle_1"
-      },
-      {
-        "arm": "auto_before_grasp"
-      },
-      {
-        "arm": "auto_home"
-      }
+      {"arm": "auto_home"},
+      {"arm": "auto_before_grasp"},
+      {"arm": "auto_final_grasp_1_2"},
+      {"arm": "auto_final_grasp_1_1"},
+      {"arm": "auto_final_grasp_1"},
+      {"hand_seq": "release_middle_1"},
+      {"arm": "auto_before_grasp"},
+      {"arm": "auto_home"}
     ]
   },
   "scan_right_draft": {
@@ -134,24 +64,12 @@
     "arm": "right",
     "hand": "r",
     "steps": [
-      {
-        "task": "pick_dino"
-      },
-      {
-        "route": "auto_scan_right_my"
-      },
-      {
-        "arm": "home"
-      },
-      {
-        "route": "auto_scan_right_px"
-      },
-      {
-        "arm": "home"
-      },
-      {
-        "task": "place_dino"
-      }
+      {"task": "pick_dino"},
+      {"route": "auto_scan_right_my"},
+      {"arm": "home"},
+      {"route": "auto_scan_right_px"},
+      {"arm": "home"},
+      {"task": "place_dino"}
     ]
   },
   "scan_left_draft": {
@@ -159,24 +77,12 @@
     "arm": "left",
     "hand": "l",
     "steps": [
-      {
-        "task": "pick_dino_left"
-      },
-      {
-        "route": "auto_scan_left_mx"
-      },
-      {
-        "arm": "auto_home"
-      },
-      {
-        "route": "auto_scan_left_py"
-      },
-      {
-        "arm": "auto_home"
-      },
-      {
-        "task": "place_dino_left"
-      }
+      {"task": "pick_dino_left"},
+      {"route": "auto_scan_left_mx"},
+      {"arm": "auto_home"},
+      {"route": "auto_scan_left_py"},
+      {"arm": "auto_home"},
+      {"task": "place_dino_left"}
     ]
   },
   "verify_px": {
@@ -184,25 +90,12 @@
     "arm": "right",
     "hand": "r",
     "steps": [
-      {
-        "task": "pick_dino"
-      },
-      {
-        "arm": "cali_way_1"
-      },
-      {
-        "route": "verify_px",
-        "speed": 5
-      },
-      {
-        "arm": "cali_way_1"
-      },
-      {
-        "arm": "home"
-      },
-      {
-        "task": "place_dino"
-      }
+      {"task": "pick_dino"},
+      {"arm": "cali_way_1"},
+      {"route": "verify_px", "speed": 5},
+      {"arm": "cali_way_1"},
+      {"arm": "home"},
+      {"task": "place_dino"}
     ]
   },
   "verify_my": {
@@ -210,20 +103,39 @@
     "arm": "right",
     "hand": "r",
     "steps": [
-      {
-        "task": "pick_dino"
-      },
-      {
-        "route": "verify_my",
-        "speed": 5
-      },
-      {
-        "arm": "home",
-        "speed": 5
-      },
-      {
-        "task": "place_dino"
-      }
+      {"task": "pick_dino"},
+      {"route": "verify_my", "speed": 5},
+      {"arm": "home", "speed": 5},
+      {"task": "place_dino"}
+    ]
+  },
+  "pick_dino_quick": {
+    "note": "Dino out of the screwed jig, quick (robot OK 2026-11-09, ~26 s): 60 deg/s empty, 45 with the Dino, 10 near the jig, straight lift 40 mm/s, fingers 45 deg/s",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {"arm": "home", "speed": 60},
+      {"hand": "initial_1", "speed": 45},
+      {"arm": "before_grasp", "speed": 60},
+      {"arm": "final_grasp_1_1109_xp5", "speed": 60, "slow_end_deg": 15, "slow_speed": 10},
+      {"hand_seq": "grasp_middle_1", "speed": 45, "pause": 0.15},
+      {"arm": "final_grasp_1_1_1109_xp5", "line": true, "line_speed": 40},
+      {"arm": "before_grasp", "speed": 45},
+      {"arm": "home", "speed": 45}
+    ]
+  },
+  "place_dino_quick": {
+    "note": "pick_dino_quick backwards (robot OK 2026-11-09, ~26 s): 45 deg/s with the Dino, 8 near the jig, straight in 30 mm/s, fingers 45 deg/s, 60 empty",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {"arm": "home", "speed": 45},
+      {"arm": "before_grasp", "speed": 45},
+      {"arm": "final_grasp_1_1_1109_xp5", "speed": 45, "slow_end_deg": 15, "slow_speed": 8},
+      {"arm": "final_grasp_1_1109_xp5", "line": true, "line_speed": 30},
+      {"hand_seq": "release_middle_1", "speed": 45, "pause": 0.15},
+      {"arm": "before_grasp", "speed": 60, "slow_start_deg": 15, "slow_speed": 10},
+      {"arm": "home", "speed": 60}
     ]
   }
 }

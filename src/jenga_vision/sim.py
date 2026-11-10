@@ -40,6 +40,7 @@ from jenga_vision.kinematics import URDF, Chain, axis_angle, load_joints, transf
 from jenga_vision.scan_plan import FACE_NORMALS, SETUP_FILE, Tower, arm_tool
 
 RVIZ_FILE = Path("config/sim.rviz")
+ROBOT_DOMAINS = ("0", "42")  # real xArm7 + Allegro (42 since 2026-11-09): the fake controllers would answer there
 ARMS = ("right", "left")
 START_POSES = {"right": "home", "left": "auto_home"}
 START_HAND = "initial_1"
@@ -423,6 +424,14 @@ def check(name: str, warn_mm: float, samples: int = 40) -> None:
     print("smallest per part: " + ", ".join(f"{k} {v:.1f} mm" for k, v in worst.items()))
 
 
+def rviz_env() -> dict:
+    """Environment for rviz2 without what importing cv2 added (its Qt plugins make rviz2 fail on xcb)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QT_QPA_")}
+    if "LD_LIBRARY_PATH" in env:
+        env["LD_LIBRARY_PATH"] = ":".join(p for p in env["LD_LIBRARY_PATH"].split(":") if "/cv2/" not in p)
+    return env
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-rviz", action="store_true")
@@ -435,10 +444,11 @@ def main() -> None:
     if args.check:
         check(args.check, args.warn_mm)
         return
-    if os.environ.get("ROS_DOMAIN_ID", "0") in ("", "0"):
-        raise SystemExit("refusing to run on ROS_DOMAIN_ID 0 (real robot): export ROS_DOMAIN_ID=77")
+    if os.environ.get("ROS_DOMAIN_ID", "0") in ("", *ROBOT_DOMAINS):
+        raise SystemExit(f"refusing to run on ROS_DOMAIN_ID {os.environ.get('ROS_DOMAIN_ID') or 0} (real robot): "
+                         "export ROS_DOMAIN_ID=77")
     sim = Sim(args)
-    rviz = None if args.no_rviz else subprocess.Popen(["rviz2", "-d", str(RVIZ_FILE.resolve())])
+    rviz = None if args.no_rviz else subprocess.Popen(["rviz2", "-d", str(RVIZ_FILE.resolve())], env=rviz_env())
     print(f"jenga-sim on ROS_DOMAIN_ID={os.environ['ROS_DOMAIN_ID']}: fake arms/hands, /compute_fk, /compute_ik, "
           "/jenga_sim/markers. Ctrl+C to quit.", flush=True)
     try:

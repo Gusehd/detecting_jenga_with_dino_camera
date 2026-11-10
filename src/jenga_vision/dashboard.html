@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jenga Scan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Data terminal, dark (taste skill, seed 874551497). Stage display read from across a room, so its caption is
+   larger than the app rules allow. Face: the accent is lit wood instead of the dealt blue.
+   Layout: 4:3 video as tall as the screen, the rest is the tower column.
+   1920 x 1080: video 1440 wide + tower column 480 = 1920. */
+:root {
+  --ground: #171719;
+  --surface: #131217;
+  --raised: #212023;
+  --border: #222224;
+  --text: #ffffff;
+  --muted: #a4a6ac;
+  --accent: #e8a24a;
+  --negative: #e5566f;
+  --gap: 24px;
+  --pad: 32px;
+  --font: "Public Sans", "Noto Sans CJK KR", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --fs-caption: clamp(24px, 3.1vh, 40px);
+  --fs-action: clamp(18px, 2.2vh, 28px);
+  --fs-small: clamp(14px, 1.5vh, 18px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--ground); color: var(--text); font: 400 var(--fs-small)/1.4 var(--font); overflow: hidden; word-break: keep-all; }
+main { height: 100%; display: grid; grid-template-columns: minmax(0, calc(100vh * 4 / 3)) minmax(400px, 1fr); }
+.video { position: relative; background: var(--surface); min-height: 0; }
+.video img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.video img[hidden] { display: none; }
+.side { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--gap); padding: var(--pad); border-left: 1px solid var(--border); }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap); }
+h1 { margin: 0; font-size: var(--fs-small); font-weight: 600; }
+.lang { display: flex; gap: 16px; }
+.lang button { all: unset; cursor: pointer; color: var(--muted); padding-bottom: 3px; border-bottom: 1px solid transparent; }
+.lang button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.lang button:hover { color: var(--text); }
+.lang button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.tower { min-height: 0; position: relative; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+.caption { display: grid; gap: 8px; min-height: calc(var(--fs-caption) * 2.7 + var(--fs-action) * 1.4); align-content: start; }
+.caption p { margin: 0; }
+#headline { font-size: var(--fs-caption); line-height: 1.25; font-weight: 600; text-wrap: balance; }
+#action { font-size: var(--fs-action); line-height: 1.4; color: var(--muted); }
+.meter { height: 8px; background: var(--raised); }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
+.counts { display: flex; justify-content: space-between; gap: var(--gap); color: var(--muted); font-variant-numeric: tabular-nums; }
+.counts b { color: var(--text); font-weight: 500; }
+@media (max-width: 900px) {
+  body { overflow: auto; }
+  main { height: auto; grid-template-columns: 1fr; }
+  .video { aspect-ratio: 4 / 3; }
+  .side { border-left: 0; grid-template-rows: auto 60vh auto; }
+}
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="video" aria-label="Dino-Lite microscope video">
+    <img id="video" alt="Live view of the microscope camera on the tower" hidden>
+  </section>
+  <section class="side">
+    <header>
+      <h1>Jenga Scan</h1>
+      <div class="lang" role="group" aria-label="Language">
+        <button id="en" type="button">English</button>
+        <button id="ko" type="button">한국어</button>
+      </div>
+    </header>
+    <div class="tower"><canvas id="tower" role="img" aria-label="Jenga tower with the block being scanned lit"></canvas></div>
+    <div>
+      <div class="caption" aria-live="polite">
+        <p id="headline"></p>
+        <p id="action"></p>
+      </div>
+      <div class="meter" aria-hidden="true"><i id="focus"></i></div>
+      <p class="counts" style="margin:12px 0 0"><span id="count"></span><span id="clock"></span></p>
+    </div>
+  </section>
+</main>
+<script>
+const TEXT = {
+  en: {
+    idle: "Ready to scan", pick: "Picking up the camera", place: "Returning the camera",
+    done: "Scan complete!", stopped: "Scan stopped", started: "Scan started!",
+    scanning: (f, b) => `Floor ${f}, block ${b} of 3`,
+    focus: "Finding focus", edge: "Finding the gap", shot: "Taking the picture",
+    measured: mm => `Gap ${mm.toFixed(2)} mm`,
+    blocks: (n, t) => `${n} of ${t} blocks`,
+    first: (f, s) => `First block to pull: floor ${f}, ${["left", "middle", "right"][s]}`,
+  },
+  ko: {
+    idle: "탐색 준비 완료", pick: "카메라 집는 중", place: "카메라 꽂는 중",
+    done: "탐색 끝!", stopped: "탐색 중단", started: "탐색 시작!",
+    scanning: (f, b) => `${f}층 ${b}번째 블록 탐색 중`,
+    focus: "초점 맞추는 중", edge: "틈 찾는 중", shot: "사진 찍는 중",
+    measured: mm => `틈 ${mm.toFixed(2)} mm`,
+    blocks: (n, t) => `${t}개 중 ${n}개 블록`,
+    first: (f, s) => `첫 번째로 뽑을 블록: ${f}층 ${["왼쪽", "가운데", "오른쪽"][s]}`,
+  },
+};
+let lang = new URLSearchParams(location.search).get("lang") === "ko" ? "ko" : "en";
+let state = { stage: "idle", scanned: [], order: [], total: 0 };
+const $ = id => document.getElementById(id);
+
+// --- tower: pixel art seen from the corner of the two scanned faces ---------------------
+// Left face = -y (ends of odd floors), right face = +x (ends of even floors). Slot 0 is on the left on both.
+const FLOORS = 17, W = 36, H = 7, TOP = W;        // low-res pixels: face width, floor height, top diamond height
+const LOW_W = W * 2 + 2, LOW_H = FLOORS * H + TOP + 2;
+const low = document.createElement("canvas");
+low.width = LOW_W; low.height = LOW_H;
+const lc = low.getContext("2d");
+const FIRST_SCANNED = 3, LAST_SCANNED = 15;
+
+function mix(a, b, t) {
+  const p = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const [x, y] = [p(a), p(b)];
+  return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
+function shade(c, k) { return mix(c, k < 0 ? "#000000" : "#ffffff", Math.abs(k)); }
+
+function blockColor(floor, slot, ends, pulse) {
+  const layer = floor - 1;
+  if (!ends) return floor < FIRST_SCANNED || floor > LAST_SCANNED ? "#2c2b2e" : "#37363a";
+  if (state.stage === "scan" && state.layer === layer && state.slot === slot) return mix("#e8a24a", "#ffe9c4", pulse);
+  const rank = state.order.findIndex(o => o.layer === layer && o.slot === slot);
+  if (state.order.length && rank >= 0 && rank < 8) return "#e8a24a";
+  const done = state.scanned.find(b => b.layer === layer && b.slot === slot);
+  if (done) {
+    const t = Math.min(done.gap_px / 18, 1);          // one hue: wider gap, brighter wood
+    return mix("#5b4a35", "#c58a42", t);
+  }
+  return floor < FIRST_SCANNED || floor > LAST_SCANNED ? "#2c2b2e" : "#4a494e";
+}
+
+function drawTower(pulse) {
+  lc.clearRect(0, 0, LOW_W, LOW_H);
+  const put = (x, y, c) => { lc.fillStyle = c; lc.fillRect(x, y, 1, 1); };
+  const x0 = 1, y0 = TOP / 2 + 1;
+  for (let f = 1; f <= FLOORS; f++) {
+    const fy = y0 + (FLOORS - f) * H;
+    for (let c = 0; c < W; c++) {                     // left face runs down to the near corner
+      const leftEnds = f % 2 === 1, slot = Math.floor(c * 3 / W);
+      const col = blockColor(f, slot, leftEnds, pulse);
+      const y = fy + Math.floor(c / 2);
+      const seam = leftEnds && c > 0 && Math.floor((c - 1) * 3 / W) !== slot;
+      for (let r = 0; r < H; r++) put(x0 + c, y + r, r === H - 1 || seam ? "#111014" : shade(col, -0.16));
+    }
+    for (let c = 0; c < W; c++) {                     // right face runs up from the near corner
+      const rightEnds = f % 2 === 0, slot = Math.floor(c * 3 / W);
+      const col = blockColor(f, slot, rightEnds, pulse);
+      const y = fy + Math.floor((W - 1 - c) / 2);
+      const seam = rightEnds && c > 0 && Math.floor((c - 1) * 3 / W) !== slot;
+      for (let r = 0; r < H; r++) put(x0 + W + c, y + r, r === H - 1 || seam ? "#111014" : col);
+    }
+  }
+  // top of floor 17: three long blocks, seams along one diagonal
+  for (let u = 0; u < W; u++) for (let v = 0; v < W; v++) {
+    const x = x0 + W - 1 + u - v + 1, y = y0 - W / 2 + Math.floor((u + v) / 2);
+    const seam = v > 0 && Math.floor((v - 1) * 3 / W) !== Math.floor(v * 3 / W);
+    put(x, y, seam ? "#111014" : "#403f44");
+    put(x - 1, y, seam ? "#111014" : "#403f44");
+  }
+}
+
+function paint(now) {
+  const canvas = $("tower"), box = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(box.width * dpr); canvas.height = Math.round(box.height * dpr);
+  const scale = Math.max(1, Math.floor(Math.min(canvas.width / LOW_W, canvas.height / LOW_H)));
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  drawTower(still ? 0.6 : 0.5 + 0.5 * Math.sin(now / 240));
+  const g = canvas.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.drawImage(low, Math.floor((canvas.width - LOW_W * scale) / 2), Math.floor((canvas.height - LOW_H * scale) / 2),
+              LOW_W * scale, LOW_H * scale);
+  requestAnimationFrame(paint);
+}
+
+// --- words -----------------------------------------------------------------------------
+function clock() {
+  if (!state.started) return "";
+  const s = Math.max(0, Math.round((state.ended || Date.now() / 1000) - state.started));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+function render() {
+  const t = TEXT[lang], s = state;
+  document.documentElement.lang = lang;
+  $("en").setAttribute("aria-pressed", lang === "en");
+  $("ko").setAttribute("aria-pressed", lang === "ko");
+  let head = t[s.stage] || "", action = "";
+  if (s.stage === "scan") {
+    const justStarted = s.scanned.length === 0 && s.action === "focus" && s.started && Date.now() / 1000 - s.started < 4;
+    head = justStarted ? t.started : t.scanning(s.layer + 1, s.slot + 1);
+    action = s.action === "measured" && s.gap_mm != null ? t.measured(s.gap_mm) : t[s.action] || "";
+  } else if (s.stage === "done" && s.order && s.order.length) {
+    action = t.first(s.order[0].layer + 1, s.order[0].slot);
+  }
+  $("headline").textContent = head;
+  $("action").textContent = action;
+  const bar = s.stage === "scan" && s.peak ? Math.min(s.focus / s.peak, 1) : 0;
+  $("focus").style.width = `${Math.round(bar * 100)}%`;
+  $("count").textContent = s.total ? t.blocks(s.scanned.length, s.total) : "";
+  $("clock").textContent = clock();
+}
+function setLang(l) { lang = l; render(); }
+$("en").onclick = () => setLang("en");
+$("ko").onclick = () => setLang("ko");
+addEventListener("keydown", e => {
+  if (e.key === "l" || e.key === "L") setLang(lang === "en" ? "ko" : "en");
+  if (e.key === "f" || e.key === "F") {
+    if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {});
+  }
+});
+
+// --- live data -------------------------------------------------------------------------
+function connect() {
+  const source = new EventSource("/events");
+  source.onmessage = e => { state = JSON.parse(e.data); render(); };
+  source.onerror = () => { source.close(); setTimeout(connect, 1000); };
+}
+function stream() {           // set after load: a stream never finishes loading
+  const v = $("video");
+  v.onload = () => { v.hidden = false; };
+  v.onerror = () => { v.hidden = true; setTimeout(() => { v.src = "/stream?" + Date.now(); }, 1000); };
+  v.src = "/stream";
+}
+addEventListener("load", () => { render(); connect(); stream(); requestAnimationFrame(paint); setInterval(render, 1000); });
+</script>
+</body>
+</html>

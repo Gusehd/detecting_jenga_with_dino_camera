@@ -104,7 +104,7 @@ BRIGHTNESS_REF = 100.0  # steady_focus is the focus value at this image median
 EDGE_STEP = 40  # gray step of the rim over 6 rows: in focus 98-219, no edge in the image <= 21 (2026-11-02)
 RIM_HALF_WIDTH = 40  # px, columns used for the rim row at the middle of each image third
 EDGE_ROWS_AGREE = 12  # the middle third's rim row is this close to the line through the outer two
-EDGE_MAX_SPAN = 80  # rows between the left and right thirds: the Dino may sit up to about 10 deg turned
+EDGE_MAX_SPAN = 160  # rows between the left and right thirds: the Dino may sit up to about 20 deg turned (13 deg seen 2026-11-10; 80 px = 10 deg hid the edge, no leveling, 12 s searches per shot)
 EDGE_MARGIN = 0.03  # stripes difference closer to 0 than this: undecided, taken as the top edge
 REFOCUS_MOVE_M = 0.001  # focus again after moving more than this up / down
 EDGE_SEARCH_STEP_MM = 2.5  # vertical search step for the edge (the image is ~10 mm high at dial 30)
@@ -138,7 +138,7 @@ PARALLEL_M = 0.001  # a straight move that changes the distance to the face by l
 PRESETS = {"v1": {"sweep": True, "shot_settle_s": 0.3},
            "v2": {"sweep": True, "shot_settle_s": 0.2, "parallel_speed": 100.0, "approach_speed": 60.0,
                   "keep_camera": True, "carry_dino": True, "narrow_ref2": True, "prior_from_last": True}}
-LEVEL_DEG, MAX_ROLL_DEG = 0.7, 10.0
+LEVEL_DEG, MAX_ROLL_DEG = 0.7, 20.0
 # --blur-test: passes without stopping, to see how much moving changes the gap px (2026-11-10)
 BLUR_MAX_MM_S = 60.0  # passes along the face at a fixed distance (user OK to raise from 30, 2026-11-10)
 BLUR_MARGIN_M = 0.010  # along passes start / end this far beyond the outer block centres
@@ -152,6 +152,7 @@ AE_RECOVER_MAX_S = 1.6  # ... or this long after it (it climbs 0.5-1.5 s, 2026-1
 AE_STEADY = 0.08  # the frames of one shot within this of each other
 AE_MAX_WAIT_S = 2.0  # then the frames are taken anyway (and counted)
 FRAME_LAG_S = 0.05  # a frame read this long after the wait was exposed after it
+LAST_START_MAX_OFF_MM = 8.0  # a last edge height this far from the prior is another layer (layer 21.9 mm), not used
 LAST_START_FILE = ".last_start.json"  # in --out: per face, depth and height of the first block of the last scan
 FAKE_FPS = 24.0  # the Dino at 640x480 while moving (blur test 2026-11-10)
 GLIDE_MIN_FRAMES = 3  # good frames per block in a glide, else that block is shot stopped  # level the gap when tilted more than this; limit of the correction
@@ -1612,6 +1613,10 @@ def scan_main(args) -> tuple[Path | None, bool]:
     last_file = args.out / LAST_START_FILE
     if args.prior_from_last and last_file.exists():
         last = json.loads(last_file.read_text()).get(face)
+        if last and abs(last["down_mm"] - args.prior_down_mm) > LAST_START_MAX_OFF_MM:
+            print(f"   the last {face} scan ({last['session']}) found its edge {last['down_mm']:+.1f} mm down, more than "
+                  f"{LAST_START_MAX_OFF_MM:.0f} mm from {args.prior_down_mm:+.1f}: probably another layer, not used")
+            last = None
         if last:
             print(f"   start like the last {face} scan ({last['session']}): depth {last['depth_mm']:+.1f} mm, "
                   f"down {last['down_mm']:+.1f} mm (instead of {args.prior_depth_mm:+.1f}, {args.prior_down_mm:+.1f})")

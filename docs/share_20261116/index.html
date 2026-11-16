@@ -1,0 +1,243 @@
+<title>세로 스캔 검토</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Lab report, one reading column, same look as the 2026-11-10 report: answer first, to-scale path drawings, measured tables as evidence. */
+:root {
+  --bg: #f4f5f3;
+  --surface: #ffffff;
+  --ink: #1d2422;
+  --muted: #5c6763;
+  --line: #d6dbd7;
+  --accent: #17625a;
+  --bar: #4f958b;
+  --bar-soft: #b9d6d0;
+  --side: #e6e9e6;
+  --hot: #b4532a;
+  --ok-bg: #dcefe6;
+  --ok-ink: #14573a;
+  --bad-bg: #f8e0dc;
+  --bad-ink: #8c2b1d;
+  --warn-bg: #f6ecd0;
+  --warn-ink: #6d5208;
+  --body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151a19; --surface: #1e2523; --ink: #e8ecea; --muted: #a2adaa; --line: #36403d;
+    --accent: #71c9bc; --bar: #4f9d91; --bar-soft: #2d4a45; --side: #262e2c; --hot: #f0956b;
+    --ok-bg: #173d2e; --ok-ink: #a5e3c6; --bad-bg: #4b211b; --bad-ink: #f6bdb2; --warn-bg: #443713; --warn-ink: #eed58a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151a19; --surface: #1e2523; --ink: #e8ecea; --muted: #a2adaa; --line: #36403d;
+  --accent: #71c9bc; --bar: #4f9d91; --bar-soft: #2d4a45; --side: #262e2c; --hot: #f0956b;
+  --ok-bg: #173d2e; --ok-ink: #a5e3c6; --bad-bg: #4b211b; --bad-ink: #f6bdb2; --warn-bg: #443713; --warn-ink: #eed58a;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15.5px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+main { max-width: 780px; margin: 0 auto; display: grid; gap: 40px; }
+section, header { display: grid; gap: 14px; min-width: 0; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; margin: 0; }
+h1 { font-size: 1.85rem; font-weight: 700; }
+h2 { font-size: 1.3rem; font-weight: 700; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 1.02rem; font-weight: 700; }
+p, ul, ol { margin: 0; }
+ul, ol { padding-left: 1.3em; display: grid; gap: 6px; }
+.eyebrow { font-family: var(--mono); font-size: .78rem; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.lede { color: var(--muted); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+code { font-family: var(--mono); font-size: .88em; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.small { font-size: .86rem; color: var(--muted); }
+
+.figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
+.figure .v { font-family: var(--mono); font-size: 1.45rem; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--accent); line-height: 1.3; }
+.figure .k { font-size: .86rem; color: var(--muted); line-height: 1.5; }
+@media (max-width: 620px) { .figures { grid-template-columns: 1fr; } }
+
+.verdict { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 16px 18px; display: grid; gap: 10px; }
+
+.paths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.path { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.path svg { width: 100%; max-width: 190px; height: auto; justify-self: center; }
+.path .cap { font-size: .9rem; line-height: 1.5; }
+.path .cap b { display: block; }
+@media (max-width: 560px) { .paths { grid-template-columns: 1fr; } .path svg { max-width: 170px; } }
+svg .blk { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+svg .side { fill: var(--side); stroke: none; }
+svg .lbl { fill: var(--muted); font-family: var(--mono); font-size: 8px; }
+svg .mv { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+svg .mv.layer { stroke: var(--hot); stroke-dasharray: 4 2.5; }
+svg .arrow { fill: var(--ink); opacity: .55; }
+svg .dot { fill: var(--accent); }
+svg .start { fill: none; stroke: var(--ink); stroke-width: 1.6; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .86rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--accent); }
+.sw.layer { border-top: 2px dashed var(--hot); }
+
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: .82rem; white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: var(--ok-bg); color: var(--ok-ink); }
+.pill { display: inline-block; font-size: .76rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.pill.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.pill.bad { background: var(--bad-bg); color: var(--bad-ink); }
+
+.reasons { list-style: none; padding: 0; gap: 14px; }
+.reasons li { display: grid; grid-template-columns: 2em minmax(0, 1fr); gap: 4px 10px; }
+.reasons .i { font-family: var(--mono); color: var(--accent); font-weight: 500; }
+.reasons p { grid-column: 2; }
+.reasons h3 { grid-column: 2; }
+
+.budget { display: grid; gap: 8px; }
+.brow { display: grid; grid-template-columns: 7.5em minmax(0, 1fr) 4.5em; gap: 10px; align-items: center; font-size: .9rem; }
+.btrack { height: 14px; background: var(--side); border-radius: 3px; position: relative; overflow: hidden; }
+.bfill { position: absolute; inset: 0 auto 0 0; background: var(--bar); border-radius: 3px; }
+.bfill.target { background: var(--bar-soft); }
+.bmark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--hot); }
+.brow .n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+</style>
+
+<main>
+  <header>
+    <p class="eyebrow">2026-11-16 · Dino 스캔 경로 검토 · 2026-11-10 v2 실측 기준</p>
+    <h1>세로로 훑으면 더 빠를까</h1>
+    <p class="lede">질문: 한 면을 지금처럼 층마다 가로로 멈춰 찍지 않고 세로로 훑으면 이동거리가 짧아지지 않나? 결론부터 말하면 짧아지지 않습니다. 그리고 지금 남은 시간은 블록 사이 이동이 아닌 다른 곳에 있습니다.</p>
+  </header>
+
+  <div class="figures">
+    <div class="figure"><span class="v">43.7 &gt; 38.5</span><span class="k">찍는 층 사이 세로 간격(mm, 한 층 걸러) &gt; 블록 사이 가로 간격(mm)</span></div>
+    <div class="figure"><span class="v">20 = 20</span><span class="k">−y 면 21샷의 이동 횟수. 순서를 어떻게 바꿔도 같다</span></div>
+    <div class="figure"><span class="v">+11 s</span><span class="k">세로 지그재그로 바꿨을 때 면당 늘어나는 시간(실측 단가로 계산)</span></div>
+  </div>
+
+  <section class="verdict">
+    <h3>내 판단</h3>
+    <ul>
+      <li><b>세로는 더 짧지 않습니다.</b> 한 면에서는 한 층 걸러 끝면이 보여서 세로로 한 칸이 43.7 mm이고, 가로 한 칸 38.5 mm보다 깁니다. 지금은 대각선으로 되돌아가지 않는 지그재그라서 가로 순서가 거리, 층 바꾸기 횟수, 측정 안정성 모두에서 낫습니다.</li>
+      <li><b>찍는 순서는 이미 최선에 가깝습니다.</b> 블록 사이 이동과 촬영은 두 면 합쳐 약 45~50초입니다. 순서를 어떻게 바꿔도 여기서 줄일 몫은 거의 없습니다.</li>
+      <li><b>남은 시간의 덩어리는 기준점 잡기(초점·라인·수평 보정)입니다.</b> 두 면 약 65초로 스캔 시간의 45 % 정도입니다. 크게 줄일 수 있다면 여기서입니다.</li>
+      <li><b>두 면 그대로 2분 30초는 어렵다고 봅니다.</b> 미검증 방법이 전부 기대만큼 될 때 겨우 닿는 숫자입니다. 2분 45~55초는 해볼 만합니다. 2분 10~20초는 −y 한 면만 쓰면 지금도 되지만, 연속 정답이 15~20에서 8~10으로 떨어집니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>한 면을 찍는 세 가지 순서</h2>
+    <p>−y 면(3~15층 중 홀수 층, 7층 × 3블록)을 실제 크기 비율로 그렸습니다. 흰 칸이 찍는 끝면이고, 회색 띠는 옆면이 보이는 짝수 층이라 찍지 않습니다. 동그라미가 시작점입니다.</p>
+    <div class="legend"><span><i class="sw"></i>같은 층 안 가로 이동 (면과 평행, 100 mm/s)</span><span><i class="sw layer"></i>층 바꾸기 (10 mm 뺐다 다시 다가감)</span></div>
+    <div class="paths">
+      <figure class="path" style="margin:0">
+        <svg viewBox="0 0 164 375" role="img" aria-label="가로 지그재그"><defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="arrow" d="M0,0 L6,3 L0,6 z"/></marker></defs><rect class="blk" x="11.0" y="338.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="338.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="338.9" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="354.6" text-anchor="end">3</text><rect class="side" x="11.0" y="311.6" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="284.2" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="284.2" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="284.2" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="299.9" text-anchor="end">5</text><rect class="side" x="11.0" y="256.9" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="229.6" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="229.6" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="229.6" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="245.3" text-anchor="end">7</text><rect class="side" x="11.0" y="202.3" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="174.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="174.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="174.9" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="190.6" text-anchor="end">9</text><rect class="side" x="11.0" y="147.6" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="120.3" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="120.3" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="120.3" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="136.0" text-anchor="end">11</text><rect class="side" x="11.0" y="93.0" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="65.7" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="65.7" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="65.7" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="81.3" text-anchor="end">13</text><rect class="side" x="11.0" y="38.3" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="11.0" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="11.0" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="11.0" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="26.7" text-anchor="end">15</text><line class="mv" x1="34.1" y1="351.6" x2="82.2" y2="351.6" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="351.6" x2="130.3" y2="351.6" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="351.6" x2="130.3" y2="296.9" marker-end="url(#ah)"/><line class="mv" x1="130.3" y1="296.9" x2="82.2" y2="296.9" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="296.9" x2="34.1" y2="296.9" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="296.9" x2="34.1" y2="242.3" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="242.3" x2="82.2" y2="242.3" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="242.3" x2="130.3" y2="242.3" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="242.3" x2="130.3" y2="187.6" marker-end="url(#ah)"/><line class="mv" x1="130.3" y1="187.6" x2="82.2" y2="187.6" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="187.6" x2="34.1" y2="187.6" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="187.6" x2="34.1" y2="133.0" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="133.0" x2="82.2" y2="133.0" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="133.0" x2="130.3" y2="133.0" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="133.0" x2="130.3" y2="78.3" marker-end="url(#ah)"/><line class="mv" x1="130.3" y1="78.3" x2="82.2" y2="78.3" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="78.3" x2="34.1" y2="78.3" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="78.3" x2="34.1" y2="23.7" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="23.7" x2="82.2" y2="23.7" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="23.7" x2="130.3" y2="23.7" marker-end="url(#ah)"/><circle class="dot" cx="34.1" cy="351.6" r="2.6"/><circle class="dot" cx="82.2" cy="351.6" r="2.6"/><circle class="dot" cx="130.3" cy="351.6" r="2.6"/><circle class="dot" cx="130.3" cy="296.9" r="2.6"/><circle class="dot" cx="82.2" cy="296.9" r="2.6"/><circle class="dot" cx="34.1" cy="296.9" r="2.6"/><circle class="dot" cx="34.1" cy="242.3" r="2.6"/><circle class="dot" cx="82.2" cy="242.3" r="2.6"/><circle class="dot" cx="130.3" cy="242.3" r="2.6"/><circle class="dot" cx="130.3" cy="187.6" r="2.6"/><circle class="dot" cx="82.2" cy="187.6" r="2.6"/><circle class="dot" cx="34.1" cy="187.6" r="2.6"/><circle class="dot" cx="34.1" cy="133.0" r="2.6"/><circle class="dot" cx="82.2" cy="133.0" r="2.6"/><circle class="dot" cx="130.3" cy="133.0" r="2.6"/><circle class="dot" cx="130.3" cy="78.3" r="2.6"/><circle class="dot" cx="82.2" cy="78.3" r="2.6"/><circle class="dot" cx="34.1" cy="78.3" r="2.6"/><circle class="dot" cx="34.1" cy="23.7" r="2.6"/><circle class="dot" cx="82.2" cy="23.7" r="2.6"/><circle class="dot" cx="130.3" cy="23.7" r="2.6"/><circle class="start" cx="34.1" cy="351.6" r="4.5"/></svg>
+        <figcaption class="cap"><b>가로 지그재그 (지금 방식의 뼈대)</b><span class="num">800 mm</span>, 층 바꾸기 6번<br>약 <span class="num">29 s</span></figcaption>
+      </figure>
+      <figure class="path" style="margin:0">
+        <svg viewBox="0 0 164 375" role="img" aria-label="세로 지그재그"><defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="arrow" d="M0,0 L6,3 L0,6 z"/></marker></defs><rect class="blk" x="11.0" y="338.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="338.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="338.9" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="354.6" text-anchor="end">3</text><rect class="side" x="11.0" y="311.6" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="284.2" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="284.2" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="284.2" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="299.9" text-anchor="end">5</text><rect class="side" x="11.0" y="256.9" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="229.6" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="229.6" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="229.6" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="245.3" text-anchor="end">7</text><rect class="side" x="11.0" y="202.3" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="174.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="174.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="174.9" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="190.6" text-anchor="end">9</text><rect class="side" x="11.0" y="147.6" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="120.3" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="120.3" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="120.3" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="136.0" text-anchor="end">11</text><rect class="side" x="11.0" y="93.0" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="65.7" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="65.7" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="65.7" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="81.3" text-anchor="end">13</text><rect class="side" x="11.0" y="38.3" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="11.0" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="11.0" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="11.0" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="26.7" text-anchor="end">15</text><line class="mv layer" x1="34.1" y1="351.6" x2="34.1" y2="296.9" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="296.9" x2="34.1" y2="242.3" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="242.3" x2="34.1" y2="187.6" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="187.6" x2="34.1" y2="133.0" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="133.0" x2="34.1" y2="78.3" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="78.3" x2="34.1" y2="23.7" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="23.7" x2="82.2" y2="23.7" marker-end="url(#ah)"/><line class="mv layer" x1="82.2" y1="23.7" x2="82.2" y2="78.3" marker-end="url(#ah)"/><line class="mv layer" x1="82.2" y1="78.3" x2="82.2" y2="133.0" marker-end="url(#ah)"/><line class="mv layer" x1="82.2" y1="133.0" x2="82.2" y2="187.6" marker-end="url(#ah)"/><line class="mv layer" x1="82.2" y1="187.6" x2="82.2" y2="242.3" marker-end="url(#ah)"/><line class="mv layer" x1="82.2" y1="242.3" x2="82.2" y2="296.9" marker-end="url(#ah)"/><line class="mv layer" x1="82.2" y1="296.9" x2="82.2" y2="351.6" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="351.6" x2="130.3" y2="351.6" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="351.6" x2="130.3" y2="296.9" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="296.9" x2="130.3" y2="242.3" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="242.3" x2="130.3" y2="187.6" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="187.6" x2="130.3" y2="133.0" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="133.0" x2="130.3" y2="78.3" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="78.3" x2="130.3" y2="23.7" marker-end="url(#ah)"/><circle class="dot" cx="34.1" cy="351.6" r="2.6"/><circle class="dot" cx="34.1" cy="296.9" r="2.6"/><circle class="dot" cx="34.1" cy="242.3" r="2.6"/><circle class="dot" cx="34.1" cy="187.6" r="2.6"/><circle class="dot" cx="34.1" cy="133.0" r="2.6"/><circle class="dot" cx="34.1" cy="78.3" r="2.6"/><circle class="dot" cx="34.1" cy="23.7" r="2.6"/><circle class="dot" cx="82.2" cy="23.7" r="2.6"/><circle class="dot" cx="82.2" cy="78.3" r="2.6"/><circle class="dot" cx="82.2" cy="133.0" r="2.6"/><circle class="dot" cx="82.2" cy="187.6" r="2.6"/><circle class="dot" cx="82.2" cy="242.3" r="2.6"/><circle class="dot" cx="82.2" cy="296.9" r="2.6"/><circle class="dot" cx="82.2" cy="351.6" r="2.6"/><circle class="dot" cx="130.3" cy="351.6" r="2.6"/><circle class="dot" cx="130.3" cy="296.9" r="2.6"/><circle class="dot" cx="130.3" cy="242.3" r="2.6"/><circle class="dot" cx="130.3" cy="187.6" r="2.6"/><circle class="dot" cx="130.3" cy="133.0" r="2.6"/><circle class="dot" cx="130.3" cy="78.3" r="2.6"/><circle class="dot" cx="130.3" cy="23.7" r="2.6"/><circle class="start" cx="34.1" cy="351.6" r="4.5"/></svg>
+        <figcaption class="cap"><b>세로 지그재그 (질문한 방식)</b><span class="num">865 mm</span>, 층 바꾸기 18번<br>약 <span class="num">40 s</span></figcaption>
+      </figure>
+      <figure class="path" style="margin:0">
+        <svg viewBox="0 0 164 375" role="img" aria-label="실제 v2 순서"><defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="arrow" d="M0,0 L6,3 L0,6 z"/></marker></defs><rect class="blk" x="11.0" y="338.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="338.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="338.9" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="354.6" text-anchor="end">3</text><rect class="side" x="11.0" y="311.6" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="284.2" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="284.2" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="284.2" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="299.9" text-anchor="end">5</text><rect class="side" x="11.0" y="256.9" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="229.6" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="229.6" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="229.6" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="245.3" text-anchor="end">7</text><rect class="side" x="11.0" y="202.3" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="174.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="174.9" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="174.9" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="190.6" text-anchor="end">9</text><rect class="side" x="11.0" y="147.6" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="120.3" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="120.3" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="120.3" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="136.0" text-anchor="end">11</text><rect class="side" x="11.0" y="93.0" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="65.7" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="65.7" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="65.7" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="81.3" text-anchor="end">13</text><rect class="side" x="11.0" y="38.3" width="142.4" height="25.3" rx="1.5"/><rect class="blk" x="11.0" y="11.0" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="59.1" y="11.0" width="46.1" height="25.3" rx="1.5"/><rect class="blk" x="107.2" y="11.0" width="46.1" height="25.3" rx="1.5"/><text class="lbl" x="162.4" y="26.7" text-anchor="end">15</text><line class="mv" x1="82.2" y1="23.7" x2="34.1" y2="23.7" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="23.7" x2="130.3" y2="23.7" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="23.7" x2="82.2" y2="351.6" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="351.6" x2="34.1" y2="351.6" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="351.6" x2="130.3" y2="351.6" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="351.6" x2="130.3" y2="296.9" marker-end="url(#ah)"/><line class="mv" x1="130.3" y1="296.9" x2="82.2" y2="296.9" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="296.9" x2="34.1" y2="296.9" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="296.9" x2="34.1" y2="242.3" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="242.3" x2="82.2" y2="242.3" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="242.3" x2="130.3" y2="242.3" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="242.3" x2="130.3" y2="187.6" marker-end="url(#ah)"/><line class="mv" x1="130.3" y1="187.6" x2="82.2" y2="187.6" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="187.6" x2="34.1" y2="187.6" marker-end="url(#ah)"/><line class="mv layer" x1="34.1" y1="187.6" x2="34.1" y2="133.0" marker-end="url(#ah)"/><line class="mv" x1="34.1" y1="133.0" x2="82.2" y2="133.0" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="133.0" x2="130.3" y2="133.0" marker-end="url(#ah)"/><line class="mv layer" x1="130.3" y1="133.0" x2="130.3" y2="78.3" marker-end="url(#ah)"/><line class="mv" x1="130.3" y1="78.3" x2="82.2" y2="78.3" marker-end="url(#ah)"/><line class="mv" x1="82.2" y1="78.3" x2="34.1" y2="78.3" marker-end="url(#ah)"/><circle class="dot" cx="82.2" cy="23.7" r="2.6"/><circle class="dot" cx="34.1" cy="23.7" r="2.6"/><circle class="dot" cx="130.3" cy="23.7" r="2.6"/><circle class="dot" cx="82.2" cy="351.6" r="2.6"/><circle class="dot" cx="34.1" cy="351.6" r="2.6"/><circle class="dot" cx="130.3" cy="351.6" r="2.6"/><circle class="dot" cx="130.3" cy="296.9" r="2.6"/><circle class="dot" cx="82.2" cy="296.9" r="2.6"/><circle class="dot" cx="34.1" cy="296.9" r="2.6"/><circle class="dot" cx="34.1" cy="242.3" r="2.6"/><circle class="dot" cx="82.2" cy="242.3" r="2.6"/><circle class="dot" cx="130.3" cy="242.3" r="2.6"/><circle class="dot" cx="130.3" cy="187.6" r="2.6"/><circle class="dot" cx="82.2" cy="187.6" r="2.6"/><circle class="dot" cx="34.1" cy="187.6" r="2.6"/><circle class="dot" cx="34.1" cy="133.0" r="2.6"/><circle class="dot" cx="82.2" cy="133.0" r="2.6"/><circle class="dot" cx="130.3" cy="133.0" r="2.6"/><circle class="dot" cx="130.3" cy="78.3" r="2.6"/><circle class="dot" cx="82.2" cy="78.3" r="2.6"/><circle class="dot" cx="34.1" cy="78.3" r="2.6"/><circle class="start" cx="82.2" cy="23.7" r="4.5"/></svg>
+        <figcaption class="cap"><b>실제 v2 순서 (11-10)</b><span class="num">1100 mm</span>, 층 바꾸기 6번<br>15층·3층 기준점을 먼저 잡고 나머지는 지그재그</figcaption>
+      </figure>
+    </div>
+    <p class="small">시간은 11-10 v2 실측 단가로 계산했습니다. 같은 층 안 한 칸은 1.15초, 층 바꾸기 한 번은 2.1초입니다(세션 <code>autoscan_20261110_133822</code>, <code>141611</code>의 샷 시각). 거리는 블록 중심 사이 직선거리 합이고, 층 바꿀 때 뺐다 넣는 20 mm는 넣지 않았습니다.</p>
+  </section>
+
+  <section>
+    <h2>거리와 횟수</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>순서 (−y 면, 21샷)</th><th class="n">이동</th><th class="n">층 바꾸기</th><th class="n">거리</th><th class="n">뺐다 넣기 포함</th><th class="n">예상 시간</th></tr></thead>
+      <tbody>
+        <tr><td>한 줄 찍고 대각선으로 처음 칸으로 되돌아감</td><td class="n">20</td><td class="n">6</td><td class="n">1070 mm</td><td class="n">1190 mm</td><td class="n">—</td></tr>
+        <tr><td>세로 지그재그</td><td class="n">20</td><td class="n">18</td><td class="n">865 mm</td><td class="n">1225 mm</td><td class="n">40 s</td></tr>
+        <tr class="hl"><td>가로 지그재그</td><td class="n">20</td><td class="n">6</td><td class="n">800 mm</td><td class="n">920 mm</td><td class="n">29 s</td></tr>
+        <tr><td>실제 v2 (기준점 두 개 먼저)</td><td class="n">20</td><td class="n">6</td><td class="n">1100 mm</td><td class="n">1220 mm</td><td class="n">실측 아래 표</td></tr>
+      </tbody>
+    </table></div>
+    <p>세로가 짧다는 직관은 층을 하나도 거르지 않고 찍을 때(층 간격 21.9 mm)만 맞습니다. 우리는 한 면에서 끝면이 보이는 층만 찍으니 세로 한 칸이 두 층 높이입니다. +x 면(4~14층 짝수, 6층)도 가로 680 mm, 세로 730 mm로 같은 결과입니다.</p>
+    <p>실제 순서가 이상적인 지그재그보다 300 mm 긴 것은 맨 위층과 맨 아래층의 기준점을 먼저 잡기 때문입니다. 중간 층의 깊이와 라인 높이를 두 기준점을 이은 직선으로 정하므로 두 점이 먼저 있어야 합니다. 세로 순서로 바꿔도 이 점프는 그대로 남습니다. 300 mm는 100 mm/s로 약 3초입니다.</p>
+  </section>
+
+  <section>
+    <h2>세로가 불리한 이유</h2>
+    <ol class="reasons">
+      <li><span class="i">1</span><h3>세로 한 칸이 더 깁니다</h3><p>찍는 층은 한 층 걸러 있어서 세로 간격이 2 × 21.86 = 43.7 mm입니다(<code>config/scan_setup.json</code>의 <code>layer_h</code>). 가로 간격(<code>slot_pitch</code>)은 38.5 mm입니다.</p></li>
+      <li><span class="i">2</span><h3>이동 횟수는 똑같고, 층 바꾸기가 3배가 됩니다</h3><p>21샷이면 어떤 순서든 이동은 20번입니다. 세로로 가면 그중 18번이 층 바꾸기가 됩니다. 층을 바꿀 때마다 면에서 10 mm 뺐다가 다시 다가갑니다(<code>--sweep-retreat-mm</code>). 층마다 블록이 튀어나온 정도와 깊이가 달라서입니다(+x는 최대 5 mm, 탑 기울기로 면 안 깊이 차 최대 11 mm). 같은 층 안에서는 깊이 차가 중앙값 0.6 mm라 면과 평행하게 바로 갑니다. 실측으로 층 바꾸기는 2.1초, 같은 층 한 칸은 1.15초입니다.</p></li>
+      <li><span class="i">3</span><h3>재는 값이 세로 방향입니다</h3><p>측정값은 틈 띠의 세로 두께(px)입니다. 가로로 흔들리면 띠가 띠 방향으로 번질 뿐이지만, 세로로 흔들리면 값 자체가 바뀝니다. 11-10 실험에서 세로로 움직이며 찍으면 2 mm/s에서도 14 → 10 px로 줄었고, 10 mm/s부터는 라인 검출이 0이었습니다. 가로로 멈추지 않고 훑기(<code>--glide</code>)는 큰 틈이 살아남았습니다. 세로로 멈추는 횟수가 6번에서 18번으로 늘면, 멈춘 뒤 남는 진동에 그만큼 더 자주 노출됩니다. 멈춘 뒤 진동이 값에 주는 영향은 따로 재 보지 않았으니 이 항목은 위험 요인으로만 봅니다.</p></li>
+      <li><span class="i">4</span><h3>라인 높이를 매 샷 바꿔야 합니다</h3><p>같은 층 세 블록은 라인 높이가 같아서, 한 번 맞추면 그 줄은 높이를 바꾸지 않습니다. 세로로 가면 샷마다 높이가 바뀌고, 라인이 화면 가운데에서 벗어나 다시 맞추는 일(<code>--sweep-edge-px</code> 100 px)이 생길 기회도 늘어납니다.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>실제로 시간이 어디에 쓰이나</h2>
+    <p>11-10 v2 실기 네 면의 사진 저장 시각과 초점 기록(<code>focus_log.csv</code>)으로 나눴습니다. 기준점2는 반대쪽 끝 층까지의 점프를 포함하고, 기준점 칸에는 그 층 세 블록 촬영(약 2.7초)도 들어 있습니다. 진입은 면 전체 시간에서 뺀 값이라 "약"입니다.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>면 · 세션</th><th class="n">진입</th><th class="n">기준점1</th><th class="n">기준점2</th><th class="n">나머지 샷</th><th class="n">퇴장</th><th class="n">합</th></tr></thead>
+      <tbody>
+        <tr><td>−y · 133822 (오전 탑)</td><td class="n">약 9</td><td class="n">17.4</td><td class="n">20.1</td><td class="n">22.3 <span class="small">(15샷)</span></td><td class="n">7.1</td><td class="n">76</td></tr>
+        <tr><td>+x · 133938</td><td class="n">약 7</td><td class="n">15.5</td><td class="n">18.7</td><td class="n">18.8 <span class="small">(12샷)</span></td><td class="n">7.0</td><td class="n">67</td></tr>
+        <tr><td>−y · 141611 (새 탑, 20 연속)</td><td class="n">약 8</td><td class="n">18.6</td><td class="n">19.3</td><td class="n">22.3 <span class="small">(15샷)</span></td><td class="n">7.0</td><td class="n">약 75</td></tr>
+        <tr><td>+x · 141726</td><td class="n">약 7</td><td class="n">14.7</td><td class="n">14.6</td><td class="n">27.4 <span class="small">(12샷)</span></td><td class="n">7.0</td><td class="n">약 71</td></tr>
+      </tbody>
+    </table></div>
+    <p>두 면을 합치면 기준점 둘이 약 65~70초, 나머지 샷이 약 45~50초, 진입·퇴장이 약 30초입니다. 세로냐 가로냐가 영향을 주는 것은 "나머지 샷" 칸뿐이고, 여기서는 가로가 이미 유리합니다. 기준점 안에서는 초점 샘플 한 번에 약 1초가 들고 면마다 10~17번 찍습니다. 초점 사이의 6~9초는 라인 찾기, 가운데 맞추기, 수평 보정입니다(<code>lock_on</code>).</p>
+    <p class="small">+x 141726의 나머지 샷이 다른 면보다 5초 긴 것은 층 사이에 4~6초 간격이 세 번 있어서입니다. 라인이 화면 가운데에서 벗어나 높이를 다시 맞춘 것으로 보입니다(로그로 확인은 안 함).</p>
+  </section>
+
+  <section>
+    <h2>2분 30초까지 갈 수 있나</h2>
+    <p>전체 3분 15초 중 집기와 꽂기 52초는 바꾸지 않기로 했습니다. 2분 30초(150초)를 맞추려면 두 면 스캔이 143초에서 98초가 돼야 합니다. 45초, 약 31 %를 줄여야 합니다.</p>
+    <div class="budget" role="img" aria-label="두 면 스캔 시간: 지금 143초, 2분 45초 목표면 113초, 2분 30초 목표면 98초">
+      <div class="brow"><span>지금 (v2)</span><div class="btrack"><div class="bfill" style="width:100%"></div></div><span class="n">143 s</span></div>
+      <div class="brow"><span>전체 2:45</span><div class="btrack"><div class="bfill target" style="width:79%"></div></div><span class="n">113 s</span></div>
+      <div class="brow"><span>전체 2:30</span><div class="btrack"><div class="bfill target" style="width:68.5%"></div></div><span class="n">98 s</span></div>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>방법 (두 면 합계)</th><th class="n">줄어드는 시간</th><th>상태</th><th>위험</th></tr></thead>
+      <tbody>
+        <tr><td><b>초점을 연속으로 찾기.</b> 한 점씩 멈춰 샘플을 찍는 대신, 광축 방향으로 천천히 움직이며 프레임마다 선명도를 보고 최고점을 고릅니다</td><td class="n">10~15 s</td><td><span class="pill warn">미구현</span></td><td>자동 노출이 흔들리는 프레임, 카메라 지연. 축 방향 움직임은 틈 띠를 세로로 번지게 하지 않습니다</td></tr>
+        <tr><td><b>−y에서 +x로 home을 거치지 않고 바로 이동</b></td><td class="n">6~8 s</td><td><span class="pill warn">경로 미검증</span></td><td>탑 모서리와 케이블. sim에서 먼저 확인</td></tr>
+        <tr><td>수평 보정 뒤 다시 초점 잡기를 기울기 변화가 작을 때 생략</td><td class="n">3~6 s</td><td><span class="pill warn">미구현</span></td><td>화면에 보이는 면 위치가 바뀌어 초점이 어긋남</td></tr>
+        <tr><td>층 바꿀 때 뺐다 넣기 10 → 5 mm</td><td class="n">약 5 s</td><td><span class="pill warn">미구현</span></td><td>튀어나온 블록에 Dino 캡이 걸림</td></tr>
+        <tr><td>촬영 전 대기 0.2 → 0.1초, 평행 이동 100 → 120 mm/s</td><td class="n">약 4 s</td><td><span class="pill warn">미구현</span></td><td>작은 틈(4~7 px)이 흐려짐. <code>--glide</code>에서 본 현상</td></tr>
+        <tr><td>순서를 세로로 바꾸기</td><td class="n">−20 s (늘어남)</td><td><span class="pill bad">하지 않음</span></td><td>위 표와 같음</td></tr>
+        <tr><td>−y 한 면만 찍기</td><td class="n">약 60 s</td><td><span class="pill ok">지금도 가능</span></td><td>연속 정답 15·15·20 → 10·8·10 (11-10 세 번)</td></tr>
+      </tbody>
+    </table></div>
+    <p>두 면을 유지하는 방법만 모두 더하면 28~38초입니다. 전부 기대만큼 될 때 2분 37초 근처이고, 반쯤 되면 2분 55초 정도입니다. (11-16 정정: 초점 샘플은 면당 10~16초뿐이라 연속 찾기 몫을 10~15초로 낮춤. 더 자세한 검토는 "스캔 시간 바닥" 페이지) 그래서 두 면 2분 30초는 "될 거라는 믿음"보다는 "모든 것이 잘 풀려야 닿는 끝"으로 봅니다.</p>
+  </section>
+
+  <section>
+    <h2>같이 해 볼 만한 시험</h2>
+    <p>해 볼 가치가 있는 것은 하나, 초점을 연속으로 찾기입니다. 줄어드는 몫이 가장 크고, 기준점이 스캔 시간의 거의 절반이기 때문입니다. 순서는 이렇게 제안합니다.</p>
+    <ol>
+      <li><b>정지한 블록 하나에서 비교:</b> 탑 앞 한 블록에서 지금 방식과 연속 방식으로 초점을 각각 다섯 번 찾습니다. 최고점 깊이 차이가 0.3 mm 안이고 시간이 절반 이하면 다음으로 넘어갑니다. 코드는 기본값을 끈 옵션으로 넣고, 실기 명령은 사용자가 직접 실행합니다.</li>
+      <li><b>sim(도메인 77)에서 면 직행 경로 확인:</b> home을 거치지 않는 −y → +x 경로에서 탑과의 최소 거리를 봅니다.</li>
+      <li><b>같은 탑을 v2와 새 설정으로 한 번씩 스캔:</b> 층 패턴이 같은지 <code>jenga-autoscan compare</code>로 보고, 밀어 보기로 연속 정답을 채점합니다.</li>
+    </ol>
+    <p>1단계에서 줄어드는 시간이 작으면 거기서 멈추고, 3분 15초를 확정하는 쪽을 권합니다. 그 시간은 실제 연속 뽑기 시험에 쓰는 게 데모에 더 중요합니다.</p>
+  </section>
+
+  <section>
+    <h2>근거</h2>
+    <ul class="small">
+      <li>치수: <code>config/scan_setup.json</code> (<code>layer_h</code> 0.02186 m, <code>slot_pitch</code> 0.0385 m, 스캔 층 3~15)</li>
+      <li>찍는 순서: <code>src/jenga_vision/autoscan.py</code> <code>sweep_face</code>의 <code>shots()</code> (층마다 Dino에서 가까운 끝부터), <code>reference()</code>, <code>lock_on</code></li>
+      <li>실측 시각: <code>captures/autoscan_20261110_133822</code>, <code>133938</code>, <code>141611</code>, <code>141726</code>의 사진 파일 시각과 <code>focus_log.csv</code></li>
+      <li>흐림 실험, 연속 정답, 면별 시간: <code>docs/progress_2026-11-02_robot.md</code>의 2026-11-10 절</li>
+    </ul>
+  </section>
+</main>

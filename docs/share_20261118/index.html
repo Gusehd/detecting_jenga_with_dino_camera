@@ -170,6 +170,23 @@ tr.hl td { background: var(--ok-bg); color: var(--ok-ink); }
 </section>
 
 <section>
+  <h2>옵션: 더 빠르게 하려면 주요 층만 측정</h2>
+  <p>뽑을 만한 블록은 가운데 층에 몰려 있습니다. 이번 탑에서 실제로 뽑아 성공한 처음 15개는 6~12층과 15층에서 나왔고, 3·4·13·14층은 확신도가 낮아 순서 뒤쪽(17~24번)이었습니다. 그래서 위아래 층을 포기하면 시간을 크게 줄일 수 있습니다. 명령에 <code>--layers 첫층 끝층</code>을 붙이며, 층 번호는 0부터 셉니다(5층 = 4).</p>
+  <div class="tbl"><table>
+    <tr><th>측정 층</th><th>옵션</th><th class="n">층 수</th><th class="n">예상 시간 (정밀, 새 탑)</th></tr>
+    <tr><td>3~15층 (지금)</td><td>없음</td><td class="n">13</td><td class="n">약 87초 (실측 1.4~1.5분)</td></tr>
+    <tr class="hl"><td>5~13층 (위아래 2층씩 제외)</td><td><code>--layers 4 12</code></td><td class="n">9</td><td class="n">약 67초</td></tr>
+    <tr><td>5~12층</td><td><code>--layers 4 11</code></td><td class="n">8</td><td class="n">약 62초</td></tr>
+    <tr><td>5~11층</td><td><code>--layers 4 10</code></td><td class="n">7</td><td class="n">약 58초</td></tr>
+  </table></div>
+  <ul>
+    <li>계산: 두 면 고정 비용 약 24초(카메라 준비, 큰 관절 이동, 들어가기·나오기) + 층당 약 4.8초(블록 3개와 가끔의 초점·경계 다시 맞추기). 탑마다 ±5초쯤 흔들립니다. 아직 실측 전입니다.</li>
+    <li>5~13층이면 이번 순서의 처음 15개 중 15층 블록 2개만 빠지고, 확신도 낮은 3·4·14층 블록이 뒤에서 빠집니다.</li>
+    <li>잔차: 기준이 맨 아래 측정층(5층)으로 바뀝니다. 잰 층의 절대 높이(<code>top_z_m</code>)는 그대로 나오고, 안 잰 층은 <code>layer_fit</code> 직선으로 이어 붙인 추정만 가능합니다. 게임 후반에 가운데 층이 다 빠지면 다음 후보가 없습니다.</li>
+  </ul>
+</section>
+
+<section>
   <h2>다음 작업: 모션으로 약 10초</h2>
   <ul>
     <li>블록 사이 짧은 이동의 최소 시간 0.4 → 0.25초, 면과 평행 100 → 150 mm/s: 약 6초</li>

@@ -76,7 +76,7 @@ import threading
 import time
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import cv2
@@ -89,7 +89,7 @@ from jenga_vision.dashboard import DEFAULT_PORT, Dashboard, NoDashboard, replay
 from jenga_vision.focus_search import find_peak
 from jenga_vision.kinematics import Chain
 from jenga_vision.scan_plan import (FACE_NORMALS, SETUP_FILE, Tower, arm_tool, away_from_limits, plan_face_stable,
-                                    shot_pose)
+                                    shot_pose, view_yaw)
 
 FACE_NUMBER = {"+x": 1, "+y": 2, "-x": 3, "-y": 4}  # jenga-ends faces: 90 deg counterclockwise each
 LINE_STEP_M = 0.002  # IK step along a straight move
@@ -97,6 +97,7 @@ LINE_ACCEL_MM_S2 = 200.0  # start and stop of a straight move
 RAMP_DT_S = 0.05  # time between trajectory points
 MAX_JOINT_STEP_DEG = 3.0  # per IK step; more = the arm would change configuration
 RETREAT_M = 0.03  # out from the face between layers
+COLUMN_BACK_M = 0.08  # --columns: back along the lens from a column before the joint move to the next one
 SETTLE_S = 1.0  # wait after a move before reading frames: 0.3 s still shakes the focus value (hold test)
 DEFAULT_MM_PER_PX = 0.02  # Dino at dial 30; measured on the first shot when possible
 EDGE_TOLERANCE_PX = 25  # edge row this close to the image centre is good enough
@@ -135,9 +136,46 @@ PARALLEL_M = 0.001  # a straight move that changes the distance to the face by l
 #   v2 (DRAFT 2026-11-10, not run on the robot): v1 + 0.2 s settle, 100 mm/s along the face, 60 deg/s to and
 #   from the face, one camera for both faces, the next face starts with the Dino turn / scale, narrow 2nd reference,
 #   the search starts where the last scan of the face found its first block.
+#   v3 (DRAFT 2026-11-16, sim only): v2 + the Dino turn levelled by turning the image (--soft-level, no arm roll,
+#   so no refocus after it), a reference edge left where it is within 40 px of the centre (--edge-ok-px), sweep shots within 60 (--sweep-edge-px),
+#   the focus peak from two samples plus one to confirm (--focus-predict). Offline on 492 saved shots: one image
+#   turn per face matched the arm-levelled gaps up to +-10 deg; tools/soft_level_test_20261116.py.
+#   v4 (DRAFT 2026-11-16, sim only; goal: both faces in 60 s with the Dino fixed in a jig on the hand): v3 + the
+#   Dino where the last scan had it (--rigid: no edge search, no second reference, one row after the other) and a
+#   row stopped once its side is wider than its middle (--lazy-row: the 빼안빼 call can't change; 13 % fewer
+#   shots on the saved scans, tools/shortcut_rules_20261116.py).
 PRESETS = {"v1": {"sweep": True, "shot_settle_s": 0.3},
            "v2": {"sweep": True, "shot_settle_s": 0.2, "parallel_speed": 100.0, "approach_speed": 60.0,
                   "keep_camera": True, "carry_dino": True, "narrow_ref2": True, "prior_from_last": True}}
+# --focus-predict left out of v3 (2026-11-16 robot): twice it put the middle peak 1.5-2.3 mm short and the third
+# sample still passed (its value only has to match the two samples, which were both on the slope)
+PRESETS["v3"] = {**PRESETS["v2"], "soft_level": True, "edge_ok_px": 40.0, "sweep_edge_px": 60.0}
+PRESETS["v4"] = {**PRESETS["v3"], "rigid": True, "lazy_row": True}
+# The Dino rides on the ring and little finger in the hand jig (2026-11-18): those joints decide where it is, so
+# they must be as at the calibration (dino.calibration.<arm>.hand_q, jenga-calib --hand)
+HAND_FINGERS = (3, 4)  # ring, little
+HAND_WARN_DEG, HAND_STOP_DEG = 3.0, 8.0
+RECORD_PROBE = 30  # --record: frames timed before the video file is opened at their rate
+EST_GAP_MM = 0.10  # typical gap of a block a 빼안빼 layer did not shoot (block_geometry)
+# 2026-11-18, Dino in the hand jig (scan hand pose jig_scan_pose): every tower handled as a new one (nothing of the
+# last tower), short focus searches as one sweep, the face's sideways lean learned row by row. Two modes:
+#   jig-full  every block shot, residuals measured                       (new tower ~1.4-1.5 min, both faces)
+#   jig-fast  a 빼안빼 row skips its third block, that one's residual estimated (+-0.3 mm)  (target < 1.2 min)
+PRESETS["jig-full"] = {**PRESETS["v4"], "lazy_row": False, "fresh_tower": True, "sweep_focus": True,
+                       "rigid_trust": True, "sweep_retreat_mm": 0.0, "out_speed": 100.0, "line_accel": 600.0,
+                       "shot_settle_s": 0.15, "approach_speed": 60.0, "refocus_below": 0.6, "sweep_edge_px": 90.0}
+# fast: also shoot an edge up to 115 px off the image centre instead of centring it (measured within +-120 px;
+# +-100 px changed 5 % of saved frames by more than 1 px, 2026-11-16), joint moves at 90 deg/s
+PRESETS["jig-fast"] = {**PRESETS["jig-full"], "lazy_row": True, "sweep_edge_px": 115.0, "approach_speed": 90.0}
+RIGID_FILE = ".rigid.json"  # in --out: per face, the Dino turn, image scale, depth and edge height per layer
+RIGID_REFOCUS = 0.8  # --rigid: a row's first shot below this x the face's median focus value is refocused: about
+# 1.3 mm off (robot 2026-11-16, --defocus-test 8: focus 0.85-0.9 x at 1 mm, gaps within 0.6 px up to 1 mm, 1.6 at 1.5)
+FOCUS_WIDTH_MM = 1.98  # s of the Gaussian top of the focus curve (median of 271 searches, 2026-10-30..11-10)
+PREDICT_MAX_MM = 3.0  # --focus-predict: a peak predicted further from the start than this is not trusted
+PREDICT_CONFIRM = 0.94  # the sample at the predicted peak must reach this x the best of the two (noise 3-6 %)
+ROLL_TEST_DEGS = [0.0, -3.0, 3.0, -5.0, 5.0, -10.0, 10.0, 0.0]
+REPEAT_FILE = "repeat_test.csv"  # in --out: one row per block per --repeat-test run, kept across runs
+DEFOCUS_TEST_MM = [0.0, -0.5, 0.5, -1.0, 1.0, -1.5, 1.5, -2.0, 2.0, 0.0]  # + = deeper (closer to the tower)
 LEVEL_DEG, MAX_ROLL_DEG = 0.7, 20.0
 # --blur-test: passes without stopping, to see how much moving changes the gap px (2026-11-10)
 BLUR_MAX_MM_S = 60.0  # passes along the face at a fixed distance (user OK to raise from 30, 2026-11-10)
@@ -145,6 +183,7 @@ BLUR_MARGIN_M = 0.010  # along passes start / end this far beyond the outer bloc
 BLUR_V_SPAN_M = 0.010  # up / down passes go this far above and below the edge
 BLUR_WINDOW_MM = 8.0  # frames this close to a block centre count for that block
 BLUR_EDGE_PX = 80  # and only frames with the edge this close to the image centre
+SWEEP_HALF_MM = 4.0  # --sweep-focus: one pass from 4 mm out to 4 mm in of the guess (new towers: 3-5 mm off)
 GLIDE_LAG_S = 0.05  # camera frame behind the joint state while moving (33-67 ms, blur test 2026-11-10)
 AE_DROP = 0.5  # a frame below this x the recent median: the auto exposure collapsed
 AE_BACK = 0.85  # back after a collapse when this x the brightness before it ...
@@ -241,6 +280,16 @@ def edge_tilt(frame: np.ndarray) -> float | None:
     return (right - left) / (2 * frame.shape[1] / 3)
 
 
+def turn_image(frame: np.ndarray, deg: float) -> np.ndarray:
+    """The image turned `deg` about its centre (+ = counterclockwise); turn_image(f, degrees(atan(edge_tilt(f))))
+    levels the edge."""
+    if abs(deg) < 1e-3:
+        return frame
+    h, w = frame.shape[:2]
+    m = cv2.getRotationMatrix2D((w / 2, h / 2), deg, 1.0)
+    return cv2.warpAffine(frame, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
 class ScanError(RuntimeError):
     pass
 
@@ -261,23 +310,60 @@ class Shot:
     screen: str  # left / middle / right as seen on this face
     aim: np.ndarray  # model aim point (top edge middle of the end face), world
     normal: np.ndarray  # outward face normal, world
+    yaw_deg: float = 0.0  # the Dino looks at the face from the side (scan_plan.view_yaw)
+    rot: np.ndarray | None = None  # --columns: the Dino turned as in the column's taught pose instead
 
     def pose(self, depth_m: float, down_m: float, roll: float = 0.0) -> np.ndarray:
         """Dino frame with the point in focus `depth_m` past the model face (into the
         tower), `down_m` below the model gap, turned `roll` rad about the optical axis
         (levels the image when the Dino sits turned in the hand)."""
         from jenga_vision.kinematics import axis_angle, transform
-        p = shot_pose(self.aim - self.normal * depth_m - np.array([0, 0, down_m]), self.normal, 0.0)
+        p = shot_pose(self.aim - self.normal * depth_m - np.array([0, 0, down_m]), self.normal, 0.0, self.yaw_deg)
+        if self.rot is not None:
+            p = transform(self.rot, p[:3, 3])
         return p @ transform(axis_angle(np.array([0, 0, 1.0]), roll), [0, 0, 0])
 
 
-def face_shots(tower: Tower, face: str, layers: range) -> dict[int, list[Shot]]:
+def hand_check(setup: dict, arm: str, positions: dict[str, float]) -> float | None:
+    """Print the ring / little finger joints against the calibration; the largest difference (deg), or None
+    if there is nothing to compare."""
+    ref = setup["dino"].get("calibration", {}).get(arm, {}).get("hand_q")
+    names = [f"ah{arm[0]}_joint{f}{j}" for f in range(5) for j in range(4)]
+    if not ref:
+        print("   hand: no hand_q in the calibration (jenga-calib --hand), finger angles not checked")
+        return None
+    if any(n not in positions for n in names):
+        print("   hand: no hand joints in /joint_states, finger angles not checked")
+        return None
+    worst = 0.0
+    for f in HAND_FINGERS:
+        now = [math.degrees(positions[names[f * 4 + j]]) for j in range(4)]
+        was = [math.degrees(ref[f * 4 + j]) for j in range(4)]
+        worst = max(worst, *(abs(a - b) for a, b in zip(now, was)))
+        print(f"   hand finger {f} ({'ring' if f == 3 else 'little'}): now " + " ".join(f"{v:6.1f}" for v in now) +
+              "  calibrated " + " ".join(f"{v:6.1f}" for v in was) + " deg")
+    return worst
+
+
+def column_poses(face: str, arm: str) -> dict[str, list[float]]:
+    """column_poses.<face> of scan_setup.json: {left / middle / right: saved pose name or joint values}."""
+    names = json.loads(SETUP_FILE.read_text()).get("column_poses", {}).get(face)
+    if not names:
+        raise ScanError(f"--columns: no column_poses.{face} in {SETUP_FILE}")
+    saved = json.loads(POSES_FILE.read_text())[arm]
+    missing = [v for v in names.values() if isinstance(v, str) and v not in saved]
+    if missing:
+        raise ScanError(f"--columns: pose(s) {', '.join(missing)} not in {POSES_FILE} (teach them with jenga-arm)")
+    return {k: saved[v] if isinstance(v, str) else v for k, v in names.items()}
+
+
+def face_shots(tower: Tower, face: str, layers: range, yaw_deg: float = 0.0) -> dict[int, list[Shot]]:
     """Per layer, the end faces of `face` sorted left -> right on screen."""
     faces = tower.end_faces(face, layers)
     right = shot_pose(faces[0][2], faces[0][3], 0)[:3, 0]
     out: dict[int, list[Shot]] = {}
     for layer, slot, aim, normal in faces:
-        out.setdefault(layer, []).append(Shot(layer, slot, "", aim, normal))
+        out.setdefault(layer, []).append(Shot(layer, slot, "", aim, normal, yaw_deg))
     for row in out.values():
         row.sort(key=lambda s: s.aim @ right)
         for s, name in zip(row, ends.BLOCKS):
@@ -341,7 +427,7 @@ class Mover:
         self.arm, self.tool, self.send = arm, tool, send
         self.chain = Chain(arm)
         self.joint_speed, self.line_speed = joint_speed_deg, line_speed_mm
-        self.far_speed = self.parallel_speed = None  # mm/s, see speed_for
+        self.far_speed = self.parallel_speed = self.out_speed = None  # mm/s, see speed_for
         self.line_accel = LINE_ACCEL_MM_S2
         self.face: tuple[np.ndarray, np.ndarray] | None = None  # (point on the face, outward normal)
         self.ros = None
@@ -406,6 +492,8 @@ class Mover:
             return self.far_speed, "far"
         if self.parallel_speed and abs(out1 - out0) <= PARALLEL_M:
             return self.parallel_speed, "parallel"
+        if self.out_speed and out1 - out0 > PARALLEL_M and abs(out1 - out0) >= 0.9 * float(np.linalg.norm(goal - start)):
+            return self.out_speed, "out"  # straight away from the face (--out-speed)
         return self.line_speed, "line"
 
     def line_to(self, goal_dino: np.ndarray, min_s: float = 0.4, speed: float | None = None) -> None:
@@ -416,6 +504,8 @@ class Mover:
         dp = goal_dino[:3, 3] - start[:3, 3]
         rel = start[:3, :3].T @ goal_dino[:3, :3]
         ang = math.acos(max(-1.0, min(1.0, (np.trace(rel) - 1) / 2)))
+        if np.linalg.norm(dp) < 5e-5 and ang < math.radians(0.05):  # already there (IK error): no 0.4 s empty move
+            return
         n = max(1, math.ceil(max(np.linalg.norm(dp) / LINE_STEP_M, ang / math.radians(1))))
         axis = np.array([rel[2, 1] - rel[1, 2], rel[0, 2] - rel[2, 0], rel[1, 0] - rel[0, 1]])
         axis = axis / np.linalg.norm(axis) if np.linalg.norm(axis) > 1e-9 else np.array([0, 0, 1.0])
@@ -448,10 +538,12 @@ class RealCamera:
     (2026-11-03, 2026-11-10); frames of that climb give wrong gaps. frames() therefore waits
     until the exposure is back and returns frames of steady brightness, taken after the wait."""
 
-    def __init__(self, device: int, window: bool):
+    def __init__(self, device: int, window: bool, record: Path | None = None):
         from jenga_vision.camera import DinoCamera
         self.cam = DinoCamera(device)
         self.window = window
+        self.record, self.writer = record, None  # --record: every frame to an mp4, the latest show() text on it
+        self.label = ""
         self.settle = SETTLE_S
         self.cond = threading.Condition()
         self.buf: deque = deque(maxlen=64)  # (seq, time, frame, brightness)
@@ -459,6 +551,7 @@ class RealCamera:
         self.collapse: tuple[float, float] | None = None  # (time, brightness before) of the last collapse
         self.collapses, self.waited, self.unsteady = 0, 0.0, 0
         self.last_grab = 0
+        self.turn_deg = 0.0  # --soft-level: frames() and grab() hand out images turned this much (level edge)
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -471,6 +564,8 @@ class RealCamera:
                 time.sleep(0.01)
                 continue
             t = time.time()
+            if self.record is not None:
+                self._write(frame, t)
             b = float(np.median(frame[::8, ::8, 1]))
             with self.cond:
                 recent = [x[3] for x in list(self.buf)[-30:]]
@@ -525,7 +620,7 @@ class RealCamera:
                 break
             t0 = got[0][1]  # slide on by one frame
         self.waited += time.time() - start
-        out = [x[2] for x in got]
+        out = [turn_image(x[2], self.turn_deg) for x in got]
         self.dash.frame(out[-1])
         return out
 
@@ -536,6 +631,7 @@ class RealCamera:
                 if not self.cond.wait(1.0):
                     raise ScanError("no frames from the Dino for 1 s")
             self.last_grab, frame = self.buf[-1][0], self.buf[-1][2]
+        frame = turn_image(frame, self.turn_deg)
         self.dash.frame(frame)
         if self.window:
             self.show(frame, "pass")
@@ -554,7 +650,26 @@ class RealCamera:
         return (f"exposure: {self.collapses} collapses, {self.waited:.1f} s waiting for a steady exposure, "
                 f"{self.unsteady} shots not steady")
 
+    def _write(self, frame: np.ndarray, t: float) -> None:
+        view = frame.copy()
+        cv2.putText(view, f"{time.strftime('%H:%M:%S', time.localtime(t))}  {self.label}", (8, 22),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+        if self.writer is None:  # the first RECORD_PROBE frames give the real frame rate (playback speed)
+            self.pending = getattr(self, "pending", []) + [(t, view)]
+            if len(self.pending) < RECORD_PROBE:
+                return
+            fps = (len(self.pending) - 1) / max(self.pending[-1][0] - self.pending[0][0], 1e-3)
+            h, w = view.shape[:2]
+            self.writer = cv2.VideoWriter(str(self.record), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+            print(f"   recording the Dino to {self.record} ({fps:.1f} frames/s)")
+            for _, v in self.pending:
+                self.writer.write(v)
+            self.pending = []
+            return
+        self.writer.write(view)
+
     def show(self, frame: np.ndarray, text: str) -> None:
+        self.label = text
         if not self.window:
             return
         view = frame.copy()
@@ -579,6 +694,9 @@ class RealCamera:
         self.running = False
         self.thread.join(timeout=2)
         self.cam.release()
+        if self.writer is not None:
+            self.writer.release()
+            self.writer = None
 
 
 class FakeCamera(RealCamera):
@@ -591,6 +709,7 @@ class FakeCamera(RealCamera):
                  drop_mm: float, window: bool, roll_deg: float = 0.0, seed: int = 1):
         self.settle = SETTLE_S
         self.dash = NoDashboard()
+        self.turn_deg = 0.0
         self.mover, self.window = mover, window
         self.roll = math.radians(roll_deg)  # Dino turned in the hand, unknown to the scanner
         self.shots = [s for row in shots.values() for s in row]
@@ -618,15 +737,17 @@ class FakeCamera(RealCamera):
     def frames(self, n: int, settle: float | None = None) -> list[np.ndarray]:
         if self.mover.send:  # timed like the real camera on the virtual robot
             time.sleep((self.settle if settle is None else settle) + 0.2)
-        return self.render(n)
+        return [turn_image(f, self.turn_deg) for f in self.render(n)]
 
     def grab(self) -> np.ndarray:
         if self.mover.send:
             time.sleep(1 / FAKE_FPS)
-        return self.render(1)[0]
+        return turn_image(self.render(1)[0], self.turn_deg)
 
     def render(self, n: int) -> list[np.ndarray]:
-        d = self.mover.dino()
+        ros = self.mover.ros  # during a move the virtual robot's joint states, not the target (--sweep-focus, glide)
+        q = ros.current() if ros is not None and ros.current() is not None else self.mover.q
+        d = self.mover.chain.fk(np.array(q, float), self.mover.tool)
         focus = d[:3, 3]
         shot = min(self.shots, key=lambda s: np.linalg.norm(s.aim - focus))
         depth, drop = self.truth(shot)
@@ -659,8 +780,8 @@ class FakeCamera(RealCamera):
         return cv2.cvtColor(gray.astype(np.uint8), cv2.COLOR_GRAY2BGR)
 
     def preview(self, text: str = "moving") -> None:
-        if self.window:
-            self.show(self.frames(1)[0], text)
+        if self.window:  # no wait: the real camera shows its latest frame while the arm moves
+            self.show(turn_image(self.render(1)[0], self.turn_deg), text)
 
     def release(self) -> None:
         pass
@@ -691,6 +812,9 @@ class Scanner:
         self.last_depth = None  # depth found on the previous block: the limit follows it
         self.layer_h = json.loads(SETUP_FILE.read_text())["tower"]["layer_h"]
         self.roll = self.carry.get("roll", 0.0)  # the Dino's turn in the hand: the other face's is a start
+        if args.soft_level and "turn_deg" in self.carry:  # the same, levelled by turning the image instead
+            cam.turn_deg = self.carry["turn_deg"]
+        self.slot_down: dict[int, float] = {}  # m per slot above the row's height (--rigid: the face's tilt)
         self.log = (session / "focus_log.csv").open("w", newline="")
         self.log_w = csv.writer(self.log)
         self.log_w.writerow(["time", "layer", "slot", "screen", "depth_mm", "down_mm", "roll_deg", "focus", "edge_row",
@@ -718,6 +842,55 @@ class Scanner:
                              "" if row is None else f"{row:.0f}", f"{np.median(frame):.0f}"])
         self.log.flush()
 
+    def sweep_focus(self, shot: Shot, guess: float, down: float) -> tuple[float, float] | None:
+        """--sweep-focus: the Dino moved along the face normal through `guess` +- SWEEP_HALF_MM without stopping,
+        every frame's focus value against the depth the joint states give (record_pass); one more pass on the
+        side the peak ran off to. (depth, focus value) with the arm at the peak, or None (no clear peak)."""
+        half, v = SWEEP_HALF_MM / 1000, self.args.sweep_focus_speed
+        normal = shot.normal
+        recs: list[dict] = []
+        lo, hi = guess - half, min(guess + half, self.deepest())
+        self.go(shot, lo, down)
+        for _ in range(3):
+            got = self.record_pass(shot.pose(hi, down, self.roll), v, shot.aim, -normal)
+            for r in got:
+                r["f"] = steady_focus(r["frame"])
+                recs.append(r)
+            ds = np.array([r["along_mm"] for r in recs])
+            fs = np.array([r["f"] for r in recs])
+            k = int(np.argmax(fs))
+            span = ds.max() - ds.min()
+            if span < 1.0:
+                return None
+            # the peak inside, 0.5 mm from both ends of what was seen: found
+            if ds.min() + 0.5 <= ds[k] <= ds.max() - 0.5 or fs[k] < self.args.min_focus:
+                break  # inside, or nothing seen at all (the step search takes over)
+            if ds[k] > ds.max() - 0.5:  # still rising inward
+                lo, hi = ds.max() / 1000, min(ds.max() / 1000 + 2 * half, self.deepest())
+                if hi - lo < 0.0005:
+                    break
+            else:  # still rising outward: come back out past where it started
+                lo, hi = ds.min() / 1000 - 2 * half, ds.min() / 1000
+                self.go(shot, lo, down)
+                continue
+        near = [(d, f) for d, f in zip(ds, fs) if abs(d - ds[k]) <= 1.0]
+        if len(near) >= 5:
+            a, b, _ = np.polyfit([d for d, _ in near], [f for _, f in near], 2)
+            peak = -b / (2 * a) if a < 0 else ds[k]
+            peak = float(np.clip(peak, ds[k] - 0.5, ds[k] + 0.5))
+        else:
+            peak = float(ds[k])
+        best = float(fs[k])
+        if best < self.args.min_focus or best < 1.15 * float(np.median(fs)):
+            print(f"   {shot.screen}: focus sweep {span:.1f} mm, {len(recs)} frames: no clear peak ({best:.0f})")
+            return None
+        d = min(peak / 1000, self.deepest())
+        self.go(shot, d, down)
+        for r in recs:
+            self.log_sample(shot, r["along_mm"] / 1000, down, r["f"], r["frame"])
+        print(f"   {shot.screen}: focus sweep {span:.1f} mm, {len(recs)} frames, peak at {d * 1000:+.2f} mm, value {best:.1f}")
+        return d, best
+
     def focus(self, shot: Shot, guess: float, down: float, wide: bool) -> tuple[float, float] | None:
         """(depth, focus value) of the sharpest point near `guess`, and the arm is there;
         None if there is no clear peak. SPACE in the camera window = take this depth, q = abort."""
@@ -725,9 +898,13 @@ class Scanner:
         out, inward = (a.search_out_mm, a.search_in_mm) if wide else (a.refocus_mm, a.refocus_mm)
 
         best = 0.0
+        seen: dict[float, float] = {}  # depth mm -> value, so the search after a failed prediction reuses them
 
         def measure(depth_mm: float) -> float:
             nonlocal best
+            key = round(depth_mm, 3)
+            if key in seen:
+                return seen[key]
             d = depth_mm / 1000
             self.go(shot, d, down)
             f, frame = self.measure()
@@ -741,10 +918,23 @@ class Scanner:
                 raise ScanError("aborted by the user (q)")
             if k == ord(" "):
                 raise DepthTaken(d, f)
+            seen[key] = f
             return f
 
+        if a.sweep_focus and not wide:
+            got = self.sweep_focus(shot, guess, down)
+            if got is not None:
+                return got
+            print(f"   {shot.screen}: back to the step search")
         g = guess * 1000
+        lo, hi = g - out, min(g + inward, self.deepest() * 1000)
         try:
+            if a.focus_predict:
+                got = self.predict_peak(measure, g, lo, hi)
+                if got is not None:
+                    d0, f0 = got
+                    print(f"   {shot.screen}: 3 focus samples, peak predicted at {d0:+.2f} mm, value {f0:.1f}")
+                    return d0 / 1000, f0
             p = find_peak(measure, g, g - out, min(g + inward, self.deepest() * 1000), a.step_mm, fall=a.focus_fall,
                           falls=a.focus_falls, min_peak=a.min_focus)
         except DepthTaken as e:
@@ -756,6 +946,29 @@ class Scanner:
             return None
         self.go(shot, p.depth / 1000, down)
         return p.depth / 1000, p.value
+
+    def predict_peak(self, measure, g: float, lo: float, hi: float) -> tuple[float, float] | None:
+        """--focus-predict: the start and one step out, the peak where a Gaussian of width FOCUS_WIDTH_MM
+        through both puts it, one sample there to confirm. (depth mm, value) with the arm there, or None
+        (the caller searches as usual, the samples are reused). Offline on 242 saved searches: within
+        0.5 mm in 77 %, but only 62 % within 1 mm when the start was more than 1.5 mm off the peak."""
+        a = self.args
+        d2 = g - a.step_mm
+        if d2 < lo:
+            return None
+        f1, f2 = measure(g), measure(d2)
+        if min(f1, f2) < a.min_focus / 3:  # on the floor: the ratio says nothing
+            return None
+        s = FOCUS_WIDTH_MM
+        d0 = (g + d2) / 2 + s * s * (math.log(f1) - math.log(f2)) / (g - d2)
+        if not (lo <= d0 <= hi) or abs(d0 - g) > PREDICT_MAX_MM:
+            print(f"   predicted peak {d0:+.2f} mm is too far from the start {g:+.2f}: searching")
+            return None
+        f0 = measure(d0)
+        if f0 < a.min_focus or f0 < PREDICT_CONFIRM * max(f1, f2):
+            print(f"   predicted peak {d0:+.2f} mm not confirmed ({f0:.1f} vs {max(f1, f2):.1f}): searching")
+            return None
+        return d0, f0
 
     def find_edge(self, shot: Shot, depth: float, down: float) -> float | None:
         """Camera height (down) at which the edge is in the image, or None."""
@@ -797,8 +1010,25 @@ class Scanner:
         turned after every pick)."""
         if self.args.level_once and st.leveled:
             return
-        slope = edge_tilt(self.cam.frames(1)[0])
+        frame = self.cam.frames(1)[0]
+        slope = edge_tilt(frame)
         if slope is None:
+            return
+        if self.args.soft_level:  # turn the image, not the arm: nothing moves, so no refocus after it
+            deg = math.degrees(math.atan(slope))
+            if abs(deg) < LEVEL_DEG:
+                st.leveled = True
+                return
+            before = self.cam.turn_deg
+            turned = float(np.clip(before + deg, -MAX_ROLL_DEG, MAX_ROLL_DEG))
+            new = edge_tilt(turn_image(frame, turned - before))
+            if new is not None and abs(new) < abs(slope):
+                self.cam.turn_deg = turned
+                st.leveled = True
+                print(f"   edge tilted {deg:+.1f} deg -> image turned {turned:+.1f} deg "
+                      f"(now {math.degrees(math.atan(new)):+.1f})")
+            else:
+                print(f"   edge tilted {deg:+.1f} deg, turning the image did not help (kept {before:+.1f})")
             return
         if abs(math.degrees(math.atan(slope))) < LEVEL_DEG:
             st.leveled = True
@@ -827,6 +1057,9 @@ class Scanner:
         if row is None:
             return down
         h = 480
+        ok = self.args.edge_ok_px
+        if ok is not None and abs(row - h / 2) <= ok:  # --edge-ok-px: good enough where it is, no scale move yet
+            return down
         if st.mm_per_px is None:  # measure the scale: move the camera 0.5 mm towards the edge
             test = 0.0005 if row > h / 2 else -0.0005
             self.go(shot, depth, down + test)
@@ -840,7 +1073,7 @@ class Scanner:
             print(f"   image scale {st.mm_per_px * 1000:.1f} um/px")
         for _ in range(4):
             err = row - h / 2  # + = edge below the centre -> camera down
-            if abs(err) <= EDGE_TOLERANCE_PX:
+            if abs(err) <= (ok or EDGE_TOLERANCE_PX):
                 break
             down += float(np.clip(err * st.mm_per_px / 1000, -0.003, 0.003))
             self.go(shot, depth, down)
@@ -871,8 +1104,9 @@ class Scanner:
         st.rows.append({"key": key, "gap": round(gap, 2), "face": face, "layer": shot.layer, "slot": slot,
                         "screen": shot.screen, "focus": round(focus, 1), "depth_mm": round(depth * 1000, 2),
                         "down_mm": round(down * 1000, 2), "roll_deg": round(math.degrees(self.roll), 2),
-                        "row": rim_row, "image": name, "brightness": round(float(np.median(frame))),
+                        "turn_deg": round(self.cam.turn_deg, 2), "row": rim_row, "image": name, "brightness": round(float(np.median(frame))),
                         "rim_dark": round(rim_darkness(frame), 3),
+                        "mm_per_px": round(st.mm_per_px or DEFAULT_MM_PER_PX, 6),
                         "q": [round(float(v), 5) for v in q]})
         gap_mm = round(gap * (st.mm_per_px or DEFAULT_MM_PER_PX), 3)
         self.dash.shot(layer=shot.layer, slot=slot, face=face, gap_px=gap, gap_mm=gap_mm)
@@ -884,11 +1118,25 @@ class Scanner:
         self.face = face
         st = FaceState(depth_m=self.args.prior_depth_mm / 1000, down_m=self.args.prior_down_mm / 1000,
                        roll=self.roll, mm_per_px=self.carry.get("mm_per_px"))
+        if self.args.columns and not self.args.motion_only:
+            return self.column_face(face, rows, st, column_poses(face, self.mover.arm))
         self.enter(face, far_in)
         if self.args.blur_test is not None and not self.args.motion_only:
             return self.blur_test(face, rows, far_out, st)
+        if self.args.roll_test is not None and not self.args.motion_only:
+            return self.roll_test(face, rows, far_out, st)
+        if self.args.defocus_test is not None and not self.args.motion_only:
+            return self.defocus_test(face, rows, far_out, st)
+        if self.args.repeat_test is not None and not self.args.motion_only:
+            return self.repeat_test(face, rows, far_out, st)
         if self.args.glide and not self.args.motion_only:
             return self.glide_face(face, rows, far_out, st)
+        if self.args.rigid and not self.args.motion_only:
+            saved = json.loads((self.args.out / RIGID_FILE).read_text()).get(face) \
+                if (self.args.out / RIGID_FILE).exists() else None
+            if saved:
+                return self.rigid_face(face, rows, far_out, st, saved)
+            print(f"   --rigid: no saved Dino pose for {face} yet: a full sweep (saved for the next scan)")
         if self.args.sweep and not self.args.motion_only:
             return self.sweep_face(face, rows, far_out, st)
         for layer in sorted(rows, reverse=self.args.top_first) if not self.args.motion_only else []:
@@ -945,7 +1193,20 @@ class Scanner:
             if down is None:
                 return None
             st.height_known = True
-        if edge_seen(self.cam.frames(1)[0]):
+        if self.args.soft_level:  # the image is turned, the arm stays: one centring, no second one
+            if not edge_seen(self.cam.frames(1)[0]):  # 2026-11-16 +x L13: focused on the block above the edge
+                print(f"   {shot.screen}: edge not in view after focusing, looking for it")
+                found_at = self.find_edge(shot, d, down)
+                down = down if found_at is None else found_at
+            down = self.center_edge(shot, d, down, st)
+            self.level(shot, d, down, st)
+            if abs(down - focused_at) > REFOCUS_MOVE_M:  # other part of the face in view
+                found = self.focus(shot, d, down, False)
+                if found is not None:
+                    d, f = found
+                    st.depth_m = d
+            self.go(shot, d, down)
+        elif edge_seen(self.cam.frames(1)[0]):
             roll_at = self.roll
             down = self.center_edge(shot, d, down, st)
             self.level(shot, d, down, st)
@@ -987,8 +1248,9 @@ class Scanner:
             got = self.lock_on(mid, st, wide=not (self.args.narrow_ref2 and ref))  # near the first one's depth
             if got is None:
                 return False
-            ref[layer] = got[:2]
-            self.shoot_row(face, layer, shots(layer, True), got[0], got[1], got[2], st)
+            # the row may centre the edge again (2026-11-16 +x: L13 not in view at the first one's height): the
+            # sweep goes by the height the row ended at, not the one lock_on started from
+            ref[layer] = self.shoot_row(face, layer, shots(layer, True), got[0], got[1], got[2], st)
             return True
 
         if not reference(layers[0]):
@@ -1005,6 +1267,134 @@ class Scanner:
             row = shots(layer, False)
             self.mover.line_to(row[0].pose(d - self.args.sweep_retreat_mm / 1000, down, self.roll))
             self.shoot_row(face, layer, row, d, down, None, st)
+        self.back_off(normal, RETREAT_M)
+        self.leave(far_out)
+        return st
+
+    def learn_slot_down(self, st: FaceState, layer: int) -> None:
+        """--fresh-tower: the face's sideways lean from the rows shot so far (where each edge really was against
+        its row's mean), so the next rows send each block to its own height instead of centring the far ones."""
+        scale = st.mm_per_px or DEFAULT_MM_PER_PX
+        rows = [r for r in st.rows if r["layer"] == layer]
+        if len(rows) < 2:
+            return
+        edges = {r["slot"]: r["down_mm"] + (r["row"] - 240) * scale for r in rows}
+        mean = float(np.mean(list(edges.values())))
+        self.slot_seen = getattr(self, "slot_seen", {})
+        for slot, e in edges.items():
+            self.slot_seen.setdefault(slot, []).append(e - mean)
+        self.slot_down = {k: float(np.median(v)) / 1000 for k, v in self.slot_seen.items()}
+        print("   this face so far, per block height: " +
+              " ".join(f"S{k} {v * 1000:+.2f} mm" for k, v in sorted(self.slot_down.items())))
+
+    def column_face(self, face: str, rows: dict[int, list[Shot]], st: FaceState, poses: dict) -> FaceState:
+        """--columns (2026-11-18 hand jig: the wrist is next to the lens, one Dino turn can't reach all three
+        columns of a face): one taught arm pose per column of end faces (left / middle / right on the face). Per
+        column: a joint move to COLUMN_BACK_M behind the taught pose along the lens, straight in, the full search
+        on its first block, then the other layers with the same Dino turn, only the height changing (a short
+        refocus when a shot is out of focus), straight back out along the lens."""
+        normal = next(iter(rows.values()))[0].normal
+        layers = sorted(rows, reverse=self.args.top_first)
+        chain, tool = self.mover.chain, self.mover.tool
+        usual = None
+        for c, screen in enumerate(s for s in ends.BLOCKS if s in poses):
+            q_taught = np.array(poses[screen], float)
+            taught = chain.fk(q_taught, tool)
+            back = taught.copy()
+            back[:3, 3] -= taught[:3, 2] * COLUMN_BACK_M
+            q_back = chain.ik(back, q_taught, tool)
+            if q_back is None:
+                raise ScanError(f"{screen} column: no IK {COLUMN_BACK_M * 1000:.0f} mm behind the taught pose")
+            col = [replace(sh, rot=taught[:3, :3]) for layer in layers for sh in rows[layer] if sh.screen == screen]
+            if c % 2:  # back and forth: the next column starts at the end the last one finished
+                col = col[::-1]
+            print(f"\n== {face} column {screen}: {len(col)} end faces, L{col[0].layer:02d} -> L{col[-1].layer:02d}")
+            a = approach(self.args)
+            self.mover.joint_move(q_back, f"{screen} column, {COLUMN_BACK_M * 1000:.0f} mm back", a["speed"],
+                                  a["slow_end"], a["min_s"])
+            st.leveled = not self.args.soft_level  # another arm turn: the image tilt is read again
+            self.mover.line_to(col[0].pose(st.depth_m - RETREAT_M, st.down_m, self.roll))
+            got = self.lock_on(col[0], st, wide=not st.depth_known)
+            if got is None:
+                raise ScanError(f"no focus / edge on {col[0].screen} L{col[0].layer:02d}: the column needs it")
+            usual = usual or got[2]
+            d, down = self.shoot_row(face, col[0].layer, [col[0]], *got, st)
+            for sh in col[1:]:
+                d, down = self.shoot_row(face, sh.layer, [sh], d, down, None, st, refocus_below=self.args.refocus_below * usual)
+            out = self.mover.dino().copy()
+            out[:3, 3] -= out[:3, 2] * COLUMN_BACK_M
+            self.mover.line_to(out)
+        return st
+
+    def rigid_face(self, face: str, rows: dict[int, list[Shot]], far_out, st: FaceState, saved: dict) -> FaceState:
+        """--rigid: the Dino sits in the hand as in the last scan of this face (`saved`, RIGID_FILE), so its
+        turn, the image scale and the edge height are known: a short focus search on the first block only,
+        then every row in order (top to bottom on -y) at the saved depth and height of the layer plus what
+        the rows so far found different. A row whose first shot is out of focus is refocused."""
+        layers = sorted(rows, reverse=self.args.top_first)
+        normal = rows[layers[0]][0].normal
+        known = sorted((int(k), v) for k, v in saved["layers"].items())
+        ks = [k for k, _ in known]
+
+        # a straight line through the saved layers: one badly focused layer of the last scan must not carry its
+        # error into this one (2026-11-16 robot: a 1.7 mm wrong refocus saved for 4 layers came back as offsets)
+        fits = [np.polyfit(ks, [v[i] for _, v in known], 1) if len(ks) >= 3 else None for i in (0, 1)]
+
+        def saved_at(layer: int) -> tuple[float, float]:
+            if self.args.fresh_tower:  # nothing of the last tower: the model face, corrected row by row
+                return self.args.prior_depth_mm / 1000, self.args.prior_down_mm / 1000
+            return tuple((float(np.polyval(fit, layer)) if fit is not None
+                          else float(np.interp(layer, ks, [v[i] for _, v in known]))) / 1000
+                         for i, fit in enumerate(fits))
+
+        st.mm_per_px = saved.get("mm_per_px") or st.mm_per_px
+        self.slot_down = {} if self.args.fresh_tower else \
+            {int(k): v / 1000 for k, v in saved.get("slot_down_mm", {}).items()}
+        if self.args.fresh_tower:
+            print("   --fresh-tower: the Dino as in the last scan, nothing of the last tower")
+        if self.slot_down:
+            print("   per block height from the last scan: " +
+                  " ".join(f"S{k} {v * 1000:+.2f} mm" for k, v in sorted(self.slot_down.items())))
+        st.height_known = True
+        st.leveled = not self.args.soft_level  # the Dino may turn in a round jig: read the tilt again on the first
+        # block (soft: on the image already there, no move); the arm-roll levelling keeps the saved roll
+        self.roll = st.roll = math.radians(saved["roll_deg"])
+        self.cam.turn_deg = saved["turn_deg"]
+        print(f"   rigid Dino: as in {saved['session']} (image turned {saved['turn_deg']:+.1f} deg, "
+              f"roll {saved['roll_deg']:+.1f} deg)")
+        retreat = self.args.sweep_retreat_mm / 1000
+        off_d = off_h = 0.0
+        for i, layer in enumerate(layers):
+            d0, h0 = saved_at(layer)
+            d, down = d0 + off_d, h0 + off_h
+            row = rows[layer]
+            at = self.mover.dino()[:3, 3]
+            if np.linalg.norm(row[-1].aim - at) < np.linalg.norm(row[0].aim - at):
+                row = row[::-1]
+            print(f"\n== {face} L{layer:02d} rigid: depth {d * 1000:+.1f} mm, down {down * 1000:+.1f} mm")
+            if i == 0 and self.args.rigid_trust and saved.get("focus"):  # no search: a check like the other rows
+                self.mover.line_to(row[0].pose(d - RETREAT_M, down, self.roll))
+                self.last_depth = d
+                self.go(row[0], d, down)
+                self.level(row[0], d, down, st)
+                d, down = self.shoot_row(face, layer, row, d, down, None, st,
+                                         refocus_below=self.args.refocus_below * saved["focus"])
+            elif i == 0:
+                self.mover.line_to(row[0].pose(d - RETREAT_M, down, self.roll))
+                st.depth_m, st.down_m = d, down
+                got = self.lock_on(row[0], st, wide=False)
+                if got is None:
+                    raise ScanError(f"no focus on L{layer:02d} {row[0].screen} near the saved depth")
+                d, down = self.shoot_row(face, layer, row, *got, st)
+            else:
+                self.back_off(normal, retreat)
+                self.mover.line_to(row[0].pose(d - retreat, down, self.roll))
+                # the saved face median, not the few shots so far (one block's value varies 30-120 at one depth)
+                usual = saved.get("focus") or float(np.median([r["focus"] for r in st.rows]))
+                d, down = self.shoot_row(face, layer, row, d, down, None, st, refocus_below=self.args.refocus_below * usual)
+            off_d, off_h = d - d0, down - h0
+            if self.args.fresh_tower:
+                self.learn_slot_down(st, layer)
         self.back_off(normal, RETREAT_M)
         self.leave(far_out)
         return st
@@ -1079,6 +1469,174 @@ class Scanner:
             w.writerows(records)
         (self.session / "blur_summary.json").write_text(json.dumps(summary, indent=2))
         print_blur_summary(summary)
+        return st
+
+    def roll_test(self, face: str, rows: dict[int, list[Shot]], far_out, st: FaceState) -> FaceState:
+        """--roll-test LAYER: level the Dino with the arm on the layer's middle block (the usual way),
+        then turn it by each of --roll-test-degs about its axis, the depth and height kept. Each image is
+        measured as it is (no levelling) and turned level in software (--soft-level), against the
+        levelled shot; roll_test.csv and the images (as taken)."""
+        a = self.args
+        if a.soft_level:
+            raise ScanError("--roll-test compares against levelling with the arm: leave --soft-level off")
+        layer = a.roll_test
+        if layer not in rows:
+            raise ScanError(f"L{layer:02d} has no end faces on {face} (have {sorted(rows)})")
+        row = rows[layer]
+        mid = row[len(row) // 2]
+        print(f"\n== {face} L{layer:02d} roll test on the {mid.screen} block")
+        self.mover.line_to(mid.pose(st.depth_m - RETREAT_M, st.down_m, self.roll))
+        got = self.lock_on(mid, st, wide=True)
+        if got is None:
+            raise ScanError("no focus / edge on the middle block: the roll test needs it")
+        d, down, _ = got
+        base = self.roll
+        records = []
+        for off in a.roll_test_degs:
+            self.roll = float(np.clip(base + math.radians(off), -math.radians(MAX_ROLL_DEG), math.radians(MAX_ROLL_DEG)))
+            self.go(mid, d, down)
+            frames = self.cam.frames(ends.FRAMES_PER_SHOT, settle=SETTLE_S)
+            raw = float(np.median([ends.measure_end(f).gap for f in frames]))
+            slopes = [t for f in frames if (t := edge_tilt(f)) is not None]
+            seen_deg = math.degrees(math.atan(float(np.median(slopes)))) if slopes else None
+            soft = (float(np.median([ends.measure_end(turn_image(f, seen_deg)).gap for f in frames]))
+                    if seen_deg is not None else None)
+            name = f"roll_{off:+05.1f}.png"
+            cv2.imwrite(str(self.session / name), frames[-1])
+            rec = {"turn_deg": off, "roll_deg": round(math.degrees(self.roll), 2), "edge_tilt_deg":
+                   "" if seen_deg is None else round(seen_deg, 2), "gap_raw": raw,
+                   "gap_soft": "" if soft is None else soft, "focus": round(steady_focus(frames[-1]), 1),
+                   "edge_row": "" if (r := edge_row(frames[-1])) is None else round(r), "image": name}
+            records.append(rec)
+            print(f"   turned {off:+5.1f} deg: edge tilt {rec['edge_tilt_deg']}, gap as is {raw:.2f} px, "
+                  f"turned level {rec['gap_soft']} px, focus {rec['focus']}")
+        self.roll = base
+        self.go(mid, d, down)
+        self.back_off(mid.normal, RETREAT_M)
+        self.leave(far_out)
+        with (self.session / "roll_test.csv").open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(records[0]))
+            w.writeheader()
+            w.writerows(records)
+        levelled = [r["gap_raw"] for r in records if r["turn_deg"] == 0.0]
+        ref = float(np.median(levelled)) if levelled else records[0]["gap_raw"]
+        print(f"\nroll test, levelled gap {ref:.2f} px (repeats at 0 deg: {', '.join(f'{g:.2f}' for g in levelled)})")
+        for r in records:
+            soft = "-" if r["gap_soft"] == "" else f"{r['gap_soft'] - ref:+.2f}"
+            print(f"   {r['turn_deg']:+5.1f} deg: as is {r['gap_raw'] - ref:+.2f} px, turned level {soft} px")
+        print(f"-> {self.session / 'roll_test.csv'}")
+        return st
+
+    def repeat_test(self, face: str, rows: dict[int, list[Shot]], far_out, st: FaceState) -> FaceState:
+        """--repeat-test LAYER: the full search (focus, edge, top edge, level, scale) on the layer's middle
+        block, then its three blocks shot there. Appended to <out>/REPEAT_FILE with --repeat-label; run it
+        again after putting the Dino back in the jig (or picking it again) and the table of all runs of this
+        face and layer shows how far the Dino moved: what --rigid assumes is 0."""
+        a = self.args
+        layer = a.repeat_test
+        if layer not in rows:
+            raise ScanError(f"L{layer:02d} has no end faces on {face} (have {sorted(rows)})")
+        row = rows[layer]
+        mid = row[len(row) // 2]
+        print(f"\n== {face} L{layer:02d} repeat test ({a.repeat_label})")
+        self.mover.line_to(mid.pose(st.depth_m - RETREAT_M, st.down_m, self.roll))
+        got = self.lock_on(mid, st, wide=True)
+        if got is None:
+            raise ScanError("no focus / edge on the middle block: the repeat test needs it")
+        d, down, f = got
+        self.shoot_row(face, layer, [mid] + [s for s in row if s is not mid], d, down, f, st)
+        self.back_off(mid.normal, RETREAT_M)
+        self.leave(far_out)
+        path = a.out / REPEAT_FILE
+        new = not path.exists()
+        with path.open("a", newline="") as fh:
+            w = csv.writer(fh)
+            if new:
+                w.writerow(["label", "session", "face", "layer", "block", "depth_mm", "down_mm", "turn_deg", "roll_deg",
+                            "um_per_px", "edge_row", "gap", "focus"])
+            for r in st.rows:
+                w.writerow([a.repeat_label, self.session.name, face, layer, r["screen"], r["depth_mm"], r["down_mm"],
+                            r["turn_deg"], r["roll_deg"], "" if st.mm_per_px is None else round(st.mm_per_px * 1e6, 1),
+                            r["row"], r["gap"], r["focus"]])
+        with path.open() as fh:
+            runs = [r for r in csv.DictReader(fh) if r["face"] == face and int(r["layer"]) == layer]
+        print(f"\nrepeat test {face} L{layer:02d}, all runs in {path} (middle block; gaps left / middle / right px)")
+        by: dict[str, list[dict]] = {}
+        for r in runs:
+            by.setdefault(r["session"], []).append(r)
+        mids = []
+        for sess, rs in by.items():
+            m = next((r for r in rs if r["block"] == "middle"), rs[0])
+            g = {r["block"]: float(r["gap"]) for r in rs}
+            mids.append(m)
+            print(f"   {m['label'][:16]:16s} {sess[-15:]}: depth {float(m['depth_mm']):+6.2f} mm, down "
+                  f"{float(m['down_mm']):+6.2f} mm, turn {float(m['turn_deg']):+5.1f} deg, roll "
+                  f"{float(m['roll_deg']):+5.1f} deg, gaps " + " / ".join(f"{g.get(b, float('nan')):.1f}" for b in ends.BLOCKS))
+        if len(mids) > 1:
+            span = lambda k: max(float(m[k]) for m in mids) - min(float(m[k]) for m in mids)
+            print(f"   spread (max - min) over {len(mids)} runs: depth {span('depth_mm'):.2f} mm, down "
+                  f"{span('down_mm'):.2f} mm, turn {span('turn_deg'):.1f} deg, roll {span('roll_deg'):.1f} deg")
+            print("   --rigid is fine when depth < 1 mm, down < 0.8 mm (edge within 40 px) and turn + roll < 2 deg")
+        return st
+
+    def defocus_test(self, face: str, rows: dict[int, list[Shot]], far_out, st: FaceState) -> FaceState:
+        """--defocus-test LAYER: focus on the layer's middle block as usual, then per block of the row its own
+        focus peak (full search, no prediction) and shots at that peak + each of --defocus-test-mm, the height
+        kept: how much the gap px (and the 빼안빼 call of the layer) changes when the depth is off (what
+        --rigid-trust risks), and how far apart the blocks' peaks are (one depth per row). defocus_test.csv."""
+        a = self.args
+        layer = a.defocus_test
+        if layer not in rows:
+            raise ScanError(f"L{layer:02d} has no end faces on {face} (have {sorted(rows)})")
+        row = rows[layer]
+        mid = row[len(row) // 2]
+        print(f"\n== {face} L{layer:02d} defocus test")
+        self.mover.line_to(mid.pose(st.depth_m - RETREAT_M, st.down_m, self.roll))
+        got = self.lock_on(mid, st, wide=True)
+        if got is None:
+            raise ScanError("no focus / edge on the middle block: the defocus test needs it")
+        d, down, _ = got
+        a.focus_predict = False  # the reference peaks must be searched, not predicted (2026-11-16: 1.5 mm short)
+        records = []
+        peaks = {}
+        for shot in row:
+            found = self.focus(shot, d, down, False)
+            peak = found[0] if found else d
+            peaks[shot.screen] = peak
+            print(f"   {shot.screen}: own peak {peak * 1000:+.2f} mm ({(peak - d) * 1000:+.2f} from the middle's first)"
+                  + ("" if found else " (no peak found: the middle's depth used)"))
+            for off in a.defocus_test_mm:
+                self.go(shot, peak + off / 1000, down)
+                frames = self.cam.frames(ends.FRAMES_PER_SHOT, settle=SETTLE_S)
+                gap = float(np.median([ends.measure_end(f).gap for f in frames]))
+                name = f"defocus_{shot.screen}_{off:+04.1f}.png"
+                cv2.imwrite(str(self.session / name), frames[-1])
+                records.append({"block": shot.screen, "offset_mm": off, "depth_mm": round((peak + off / 1000) * 1000, 2),
+                                "gap": gap, "focus": round(steady_focus(frames[-1]), 1),
+                                "edge_row": "" if (r := edge_row(frames[-1])) is None else round(r), "image": name})
+                print(f"   {shot.screen:6s} {off:+4.1f} mm: gap {gap:.2f} px, focus {records[-1]['focus']}")
+        self.go(row[-1], peaks[row[-1].screen], down)
+        self.back_off(mid.normal, RETREAT_M)
+        self.leave(far_out)
+        with (self.session / "defocus_test.csv").open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(records[0]))
+            w.writeheader()
+            w.writerows(records)
+        print(f"\ndefocus test L{layer:02d}: block peaks " + ", ".join(f"{b} {v * 1000:+.2f}" for b, v in peaks.items())
+              + f" mm (spread {(max(peaks.values()) - min(peaks.values())) * 1000:.2f} mm)")
+        print("gap px minus the in-focus gap (median of the 0 mm shots); focus value")
+        names = [s.screen for s in row]
+        ref = {b: float(np.median([r["gap"] for r in records if r["block"] == b and r["offset_mm"] == 0.0]))
+               for b in names}
+        slot = {"left": 0, "middle": 1, "right": 2}
+        call0 = layer_margin({(0, slot[b]): ref[b] for b in names}, 0)
+        for off in dict.fromkeys(a.defocus_test_mm):
+            at = {r["block"]: r for r in records if r["offset_mm"] == off}
+            call = layer_margin({(0, slot[b]): at[b]["gap"] for b in names}, 0)
+            same = "same call" if call and call0 and (call[0] >= 0) == (call0[0] >= 0) else "CALL CHANGES"
+            print(f"   {off:+4.1f} mm: " + "  ".join(f"{b} {at[b]['gap'] - ref[b]:+.2f} ({at[b]['focus']:.0f})"
+                                                for b in names) + f"   {same}")
+        print(f"-> {self.session / 'defocus_test.csv'}")
         return st
 
     def record_pass(self, goal: np.ndarray, v: float, origin: np.ndarray, along: np.ndarray,
@@ -1194,20 +1752,38 @@ class Scanner:
 
     def back_off(self, normal: np.ndarray, m: float) -> None:
         """Straight out of the face by `m` before moving along it."""
+        if m <= 0:
+            return
         goal = self.mover.dino().copy()
         goal[:3, 3] += normal * m
         self.mover.line_to(goal)
 
     def shoot_row(self, face: str, layer: int, row: list[Shot], depth: float, down: float, focus: float | None,
-                  st: FaceState) -> None:
+                  st: FaceState, refocus_below: float | None = None) -> tuple[float, float]:
         """Shoot `row` at one depth and edge height; the first shot of a reference row is
-        where the arm already is."""
+        where the arm already is. `refocus_below` (--rigid): the first shot's focus value under this ->
+        a short focus search first. --lazy-row: a side wider than the middle makes the layer 빼안빼 whatever
+        the third block is, so that one is not shot. (depth, down) at the end of the row."""
+        seen: dict[str, float] = {}
+        base = down  # the row's height; each block goes to base + its slot's offset (--rigid, slot_down)
         for k, shot in enumerate(row):
+            off = self.slot_down.get(shot.slot, 0.0)
+            down = base + off
             if not (k == 0 and focus is not None):
                 self.go(shot, depth, down)
             self.dash.event(action="shot")
             frames = self.cam.frames(ends.FRAMES_PER_SHOT, settle=self.args.shot_settle_s)
             f = steady_focus(frames[-1]) if focus is None or k else focus
+            if k == 0 and refocus_below is not None and f < refocus_below:
+                print(f"   {shot.screen}: focus {f:.0f} below {refocus_below:.0f}, refocusing")
+                found = self.focus(shot, depth, down, False)
+                if found is not None and found[1] > f:  # 2026-11-16 robot: a "peak" 1.7 mm off, below the start
+                    depth, f = found
+                    st.depth_m = depth
+                elif found is not None:
+                    print(f"   {shot.screen}: the peak found ({found[1]:.0f}) is not better than where it was: kept")
+                self.go(shot, depth, down)
+                frames = self.cam.frames(ends.FRAMES_PER_SHOT, settle=self.args.shot_settle_s)
             row_px = edge_row(frames[-1])
             if row_px is not None and abs(row_px - 240) <= self.args.sweep_edge_px:  # these frames are the shot
                 gaps = [ends.measure_end(x) for x in frames]
@@ -1220,9 +1796,18 @@ class Scanner:
                     print(f"   {shot.screen}: no edge, shot anyway")
                 else:
                     down = self.center_edge(shot, depth, found, st)  # the next blocks of this row are as high
+                    base = down - off
                     self.go(shot, depth, down)
                 self.shoot(face, shot, depth, down, f, st, settle=self.args.shot_settle_s)
             self.save(st)
+            seen[shot.screen] = st.rows[-1]["gap"]
+            if self.args.lazy_row and k == 1 and len(row) == 3 and "middle" in seen:
+                side = next(b for b in seen if b != "middle")
+                if seen[side] > seen["middle"]:
+                    print(f"   {side} {seen[side]:.1f} px > middle {seen['middle']:.1f} px: 빼안빼 whatever the "
+                          f"{row[2].screen} is, not shot")
+                    break
+        return depth, base
 
     def save(self, st: FaceState) -> None:
         with (self.session / "shots.csv").open("w", newline="") as f:
@@ -1370,6 +1955,149 @@ def seq_text(seq: list[tuple[int, int, str]], truth: dict[tuple[int, int], bool]
     return " ".join(f"L{layer + 1:02d}{names[slot]}{'o' if truth[(layer, slot)] else 'X'}" for layer, slot, _ in seq)
 
 
+def session_scale(session: Path, row: dict) -> tuple[float, str]:
+    """(mm per px, where it came from) of a shots.csv row: its own column, else the RIGID_FILE next to the
+    session when it was written by that session (scans before 2026-11-18), else the default."""
+    if row.get("mm_per_px"):
+        return float(row["mm_per_px"]), "measured"
+    rigid = session.parent / RIGID_FILE
+    if rigid.exists():
+        saved = json.loads(rigid.read_text()).get(row["face"], {})
+        if saved.get("session") == session.name and saved.get("mm_per_px"):
+            return float(saved["mm_per_px"]), "measured"
+    return DEFAULT_MM_PER_PX, "default"
+
+
+def block_geometry(sessions: list[Path]) -> tuple[list[dict], list[dict], dict, dict]:
+    """What the shots say about the real block sizes and where the blocks are, for the pulling code: per block
+    (blocks), per layer (layers) and a straight line through the layer heights per face (fit). World frame of
+    config/scan_setup.json (the teammate's tower_pose). A later session wins on the same block, like load_gaps.
+      gap_mm   dark band above the end face = how much lower this block is than the one(s) the layer above
+               rests on (block heights differ by tenths of a mm): the 잔차 the pull order is made of
+      top_z_m  world z of the block's top at its end face: arm height of the shot + where the band sits in the
+               image - half the band. Precise relative to the other blocks of the face (image, ~0.02 mm/px);
+               absolute only as good as jenga-calib
+      dz_mm    top_z_m - model top (z0 + (layer + 1) x layer_h of scan_setup): the error stacked up so far
+      out_mm   end face past the model face, outward. From the focus depth: +-1 mm (the depth of field), and on
+               sweep / --rigid rows the depth of the row, not of the block"""
+    setup = json.loads(SETUP_FILE.read_text())
+    t = setup["tower"]
+    tower = Tower(t, 1.0)  # aim at the top edge, as the shots
+    found: dict[tuple[int, int], dict] = {}
+    for s in sessions:
+        with (s / "shots.csv").open() as f:
+            for r in csv.DictReader(f):
+                layer, slot, face = int(r["layer"]), int(r["slot"]), r["face"]
+                aim, normal = next((a, n) for lay, sl, a, n in tower.end_faces(face, range(layer, layer + 1))
+                                   if sl == slot)
+                mm, scale = session_scale(s, r)
+                gap_mm = float(r["gap"]) * mm
+                band_z = aim[2] - float(r["down_mm"]) / 1000 - (float(r["row"]) - 240) * mm / 1000
+                top_z = band_z - gap_mm / 2000
+                model_top = t["z0"] + (layer + 1) * t["layer_h"]
+                end = aim - normal * float(r["depth_mm"]) / 1000
+                found[(layer, slot)] = {
+                    "block": f"jenga_L{layer:02d}_S{slot}", "layer": layer, "slot": slot, "face": face,
+                    "gap_px": float(r["gap"]), "gap_mm": round(gap_mm, 3), "top_z_m": round(float(top_z), 5),
+                    "dz_mm": round(float(top_z - model_top) * 1000, 2), "out_mm": round(-float(r["depth_mm"]), 2),
+                    "end_face_top_m": [round(float(end[0]), 5), round(float(end[1]), 5), round(float(top_z), 5)],
+                    "normal": [round(float(v), 4) for v in normal[:2]], "scale": scale,
+                    "session": s.name, "image": r["image"]}
+    blocks = [found[k] for k in sorted(found)]
+    layers = []
+    for layer in sorted({b["layer"] for b in blocks}):
+        bs = [b for b in blocks if b["layer"] == layer]
+        carry = max(bs, key=lambda b: b["top_z_m"])  # the layer above rests on the highest block
+        layers.append({"layer": layer, "face": carry["face"], "blocks": len(bs), "top_z_m": carry["top_z_m"],
+                       "dz_mm": carry["dz_mm"], "carries": carry["block"],
+                       "spread_mm": round(max(b["top_z_m"] for b in bs) * 1000 - min(b["top_z_m"] for b in bs) * 1000, 2),
+                       "out_mm": round(float(np.mean([b["out_mm"] for b in bs])), 2)})
+    # per layer, the rise from the lowest scanned layer, and that rise minus the teammate's nominal one
+    # (jenga_tf block height, tower.jenga_tf_layer_h): the error stacked up over the scanned layers (2026-11-18)
+    nominal = t.get("jenga_tf_layer_h", t["layer_h"])
+    if layers:
+        base = layers[0]
+        for lay in layers:
+            rise = (lay["top_z_m"] - base["top_z_m"]) * 1000
+            lay["rise_mm"] = round(rise, 2)
+            lay["rise_residual_mm"] = round(rise - (lay["layer"] - base["layer"]) * nominal * 1000, 2)
+            lay["measured"] = [b["slot"] for b in blocks if b["layer"] == lay["layer"]]
+        # per block of every scanned layer, measured or not (a 빼안빼 layer skips one side): its top against an
+        # ideal stack of jenga_tf blocks on the lowest scanned layer, and its bottom (= the top of the layer below)
+        by_layer = {lay["layer"]: lay for lay in layers}
+        for b in blocks:
+            rise = (b["top_z_m"] - base["top_z_m"]) * 1000
+            b["top_rise_mm"] = round(rise, 2)
+            b["top_residual_mm"] = round(rise - (b["layer"] - base["layer"]) * nominal * 1000, 2)
+    else:
+        by_layer, base = {}, None
+    block_z = {}
+    measured = {(b["layer"], b["slot"]): b for b in blocks}
+    # A block not shot (a 빼안빼 layer skips one side), and for comparison every shot block as if it had not been:
+    #   logic: its top is at most the underside of the layer above at its place (top_max). That underside comes
+    #     from the other blocks of the layer (top + gap) and the face's sideways lean (per slot, the median offset
+    #     of the underside from its layer's mean over the other layers of this face; constant within +-0.1 mm on
+    #     the 2026-11-18 scans).
+    #   data: the gap of such a block is typically EST_GAP_MM (skipped blocks of 273 robot layers: median 0.1 mm,
+    #     90 % under 0.23 mm), so top_est = top_max - EST_GAP_MM; checked on 72 skipped blocks of 15 full scans:
+    #     error median 0.14 mm, 90 % 0.33 mm (the layer's highest block instead: 0.60 / 0.92 mm).
+    under = {k: b["top_z_m"] * 1000 + b["gap_mm"] for k, b in measured.items()}
+    face_of = {lay["layer"]: lay["face"] for lay in layers}
+
+    def estimate(layer: int, slot: int) -> tuple[float, float] | None:
+        others = [s for s in range(3) if s != slot and (layer, s) in under]
+        if not others:
+            return None
+        offs: dict[int, list[float]] = {}
+        for l in by_layer:
+            if l == layer or face_of[l] != face_of[layer]:
+                continue
+            here = {s: under[(l, s)] for s in range(3) if (l, s) in under}
+            if len(here) >= 2 and slot in here:
+                mean = float(np.mean(list(here.values())))
+                for s, u in here.items():
+                    offs.setdefault(s, []).append(u - mean)
+        off = {s: float(np.median(v)) for s, v in offs.items()}
+        if slot not in off or any(s not in off for s in others):
+            u = float(np.mean([under[(layer, s)] for s in others]))  # no lean known: flat
+        else:
+            u = float(np.mean([under[(layer, s)] - off[s] for s in others])) + off[slot]
+        return u, u - EST_GAP_MM
+
+    for layer, lay in sorted(by_layer.items()):
+        below = by_layer.get(layer - 1)
+        for slot in range(3):
+            b = measured.get((layer, slot))
+            est = estimate(layer, slot)
+            if b:
+                top, source = b["top_z_m"] * 1000, "measured"
+            elif est:
+                top, source = est[1], "estimated"
+            else:
+                top, source = lay["top_z_m"] * 1000, "layer"
+            rise = top - base["top_z_m"] * 1000
+
+            def residual(z: float) -> float:
+                return round(z - base["top_z_m"] * 1000 - (layer - base["layer"]) * nominal * 1000, 2)
+
+            entry = {"source": source, "top_z_m": round(top / 1000, 5), "top_rise_mm": round(rise, 2),
+                     "top_residual_mm": residual(top)}
+            if est:  # shot blocks too: what the estimate would have said, to judge the fast mode by
+                entry.update(est_top_max_residual_mm=residual(est[0]), est_top_residual_mm=residual(est[1]),
+                             est_error_mm=0.3)
+            if below:
+                entry["bottom_residual_mm"] = below["rise_residual_mm"]  # it sits on the layer below
+            block_z[f"jenga_L{layer:02d}_S{slot}"] = entry
+    fit = {}
+    for face in sorted({lay["face"] for lay in layers}):
+        ls = [lay for lay in layers if lay["face"] == face]
+        if len(ls) >= 2:
+            slope, cut = np.polyfit([lay["layer"] for lay in ls], [lay["top_z_m"] for lay in ls], 1)
+            fit[face] = {"layer_h_mm": round(float(slope) * 1000, 3), "z0_m": round(float(cut - slope), 5),
+                         "layers": [lay["layer"] for lay in ls]}  # top of layer L = z0 + (L + 1) x layer_h
+    return blocks, layers, fit, block_z
+
+
 def order_main(sessions: list[Path], out: Path | None) -> None:
     gaps = load_gaps(sessions)
     px = {b: g for b, (g, _) in gaps.items()}
@@ -1388,11 +2116,34 @@ def order_main(sessions: list[Path], out: Path | None) -> None:
     unranked = sorted({layer for layer, _ in px} - {layer for layer, _, _ in seq})
     if unranked:
         print("not ranked, shots missing: floor " + ", ".join(str(layer + 1) for layer in unranked))
+    blocks, layers, fit, block_z = block_geometry(sessions)
+    tower_t = json.loads(SETUP_FILE.read_text())["tower"]
+    nominal_h = tower_t.get("jenga_tf_layer_h", tower_t["layer_h"])
+    print(f"layer heights (top of the highest block; rise from the lowest scanned layer, residual vs "
+          f"{nominal_h * 1000:.2f} mm per layer):")
+    for lay in layers:
+        print(f"   floor {lay['layer'] + 1:2d} ({lay['face']})  top z {lay['top_z_m'] * 1000:7.2f} mm  "
+              f"rise {lay['rise_mm']:7.2f} mm  residual {lay['rise_residual_mm']:+5.2f} mm  "
+              f"blocks within {lay['spread_mm']:.2f} mm ({len(lay['measured'])} shot)  end face {lay['out_mm']:+.1f} mm")
+    for face, f in fit.items():
+        print(f"   {face}: {f['layer_h_mm']:.3f} mm per layer")
     if out:
         out.write_text(json.dumps({
             "version": 1, "source": "camera", "stamp": time.time(),
             "candidates": [{"block": f"jenga_L{layer:02d}_S{slot}", "score": scores[(layer, slot)],
-                            "reason": f"빼안빼 rule {n} ({why})"} for n, (layer, slot, why) in enumerate(seq, 1)]},
+                            "reason": f"빼안빼 rule {n} ({why})"} for n, (layer, slot, why) in enumerate(seq, 1)],
+            # added 2026-11-18, read by nothing in jenga_game yet (rules.load_candidates keeps them as meta)
+            "geometry_note": "world frame of the tower pose. layers[]: top_z_m = top of the highest block of the "
+                             "layer; rise_mm = from the lowest scanned layer; rise_residual_mm = rise_mm - layers "
+                             f"x {nominal_h * 1000:.2f} mm (jenga_tf block height): the stacked-up error; measured = "
+                             "slots shot (a 빼안빼 layer may skip one). block_z.<block>: every block of every scanned layer: "
+                             "top_residual_mm = its top minus an ideal stack from the lowest scanned layer; source "
+                             "measured / estimated (not shot: est_top_residual_mm, +-0.3 mm); est_top_max_residual_mm "
+                             "= the logical upper bound (underside of the layer above); shot blocks carry the estimate "
+                             "too, to compare; bottom_residual_mm = the layer below. blocks[]: gap_mm = how much lower the block is "
+                             "than the highest of its layer; dz_mm vs the scan model; out_mm +-1 mm. Relative values "
+                             "are 0.02 mm/px precise, top_z_m absolute only as good as the Dino calibration",
+            "block_z": block_z, "blocks": blocks, "layers": layers, "layer_fit": fit},
             indent=1))
         print(f"wrote {out}")
 
@@ -1511,7 +2262,9 @@ def run_main(args) -> None:
     setup = json.loads(SETUP_FILE.read_text())
     tower = Tower(setup["tower"], setup.get("aim", 0.5))
     layers = range(args.layers[0], args.layers[1] + 1)
-    faces = [(f, s) for f, s in RUN_FACES if s["face"] in args.faces]
+    # run_faces.<face> in scan_setup.json overrides RUN_FACES (2026-11-18 hand jig: other IK seeds, no old via
+    # poses, back to home_1118), so the robot-tested v2 settings stay as they were
+    faces = [(f, {**s, **setup.get("run_faces", {}).get(f, {})}) for f, s in RUN_FACES if s["face"] in args.faces]
     args.planned_total = sum(len(r) for f, _ in faces for r in face_shots(tower, f, layers).values())
     args.dash.event(total=args.planned_total)
 
@@ -1550,7 +2303,8 @@ def run_main(args) -> None:
             args.dash.event(stage="stopped", ended=time.time())
             return report()
 
-    if not args.motion_only and args.blur_test is None:  # no scan: keep the last pull order (also the teammate's copy)
+    tests = (args.blur_test, args.roll_test, args.defocus_test, args.repeat_test)
+    if not args.motion_only and all(t is None for t in tests):  # no scan: keep the last pull order
         print("\n===== pull order =====")
         out = args.out / time.strftime("order_%Y%m%d_%H%M%S.json")
         order_main(sessions, out)
@@ -1589,6 +2343,37 @@ def planned_ends(args, tool, tower, face: str, layers: range, seed, plan_setup: 
     return cache[key]
 
 
+def save_rigid(path: Path, face: str, st: FaceState, turn_deg: float, roll_deg: float, session: str) -> None:
+    """What --rigid starts the next scan of `face` with: per layer the depth and mean edge height of its shots."""
+    data = json.loads(path.read_text()) if path.exists() else {}
+    layers: dict[int, list[dict]] = {}
+    for r in st.rows:
+        layers.setdefault(r["layer"], []).append(r)
+    # where each edge really was (the arm's height + its row in the image), and per slot its median offset from
+    # its layer's mean: the face leans sideways, so a far block of a row would otherwise need centring (2026-11-18)
+    scale = st.mm_per_px or DEFAULT_MM_PER_PX
+    edge = {id(r): r["down_mm"] + (r["row"] - 240) * scale for r in st.rows}
+    offs: dict[int, list[float]] = {}
+    for rs in layers.values():
+        if len(rs) >= 2:
+            mean = float(np.mean([edge[id(r)] for r in rs]))
+            for r in rs:
+                offs.setdefault(r["slot"], []).append(edge[id(r)] - mean)
+    slot_down = {s: round(float(np.median(v)), 2) for s, v in sorted(offs.items()) if len(v) >= 2}
+    focus = round(float(np.median([r["focus"] for r in st.rows])), 1)
+    was = data.get(face, {}).get("focus")
+    if was and focus < 0.5 * was:  # a scan out of focus must not lower the bar of the next ones (sim 2026-11-18)
+        print(f"   {face}: median focus {focus:.0f} under half the saved {was:.0f}: the saved value is kept")
+        focus = was
+    data[face] = {"session": session, "turn_deg": round(turn_deg, 2), "roll_deg": round(roll_deg, 2),
+                  "mm_per_px": st.mm_per_px, "focus": focus,
+                  "slot_down_mm": {str(k): v for k, v in slot_down.items()},
+                  "layers": {str(k): [rs[0]["depth_mm"],
+                                      round(float(np.mean([edge[id(r)] - slot_down.get(r["slot"], 0.0) for r in rs])), 2)]
+                             for k, rs in sorted(layers.items())}}
+    path.write_text(json.dumps(data, indent=2))
+
+
 def scan_main(args) -> tuple[Path | None, bool]:
     """(session folder, finished without a stop)."""
     setup = json.loads(SETUP_FILE.read_text())
@@ -1600,18 +2385,24 @@ def scan_main(args) -> tuple[Path | None, bool]:
     if not setup["dino"].get("tool_hand"):
         raise SystemExit("Dino not calibrated (run jenga-calib first)")
     layers = range(args.layers[0], args.layers[1] + 1)
-    rows = face_shots(tower, face, layers)
+    rows = face_shots(tower, face, layers, view_yaw(setup, face))
+    if rows and view_yaw(setup, face):
+        print(f"   the Dino looks at {face} turned {view_yaw(setup, face):+.0f} deg (view_yaw_deg in {SETUP_FILE})")
     if not rows:
         raise SystemExit(f"no end faces of layers {args.layers} on face {face}")
     poses = json.loads(POSES_FILE.read_text())[args.arm]
     seed = poses[args.seed]
     plan_setup = dict(setup, dino=dict(setup["dino"], standoff_m=0.0))
     print(f"planning {face} layers {args.layers[0]}..{args.layers[1]} (IK seed '{args.seed}') ...")
-    first_q, last_q = planned_ends(args, tool, tower, face, layers, seed, plan_setup)
-    far_in, far_out = last_q if args.top_first else first_q, last_q
+    if args.columns:  # one taught pose per column, no planned path
+        far_in = far_out = None
+        column_poses(face, args.arm)  # fails here, before anything moves, if one is missing
+    else:
+        first_q, last_q = planned_ends(args, tool, tower, face, layers, seed, plan_setup)
+        far_in, far_out = last_q if args.top_first else first_q, last_q
 
     last_file = args.out / LAST_START_FILE
-    if args.prior_from_last and last_file.exists():
+    if args.prior_from_last and last_file.exists() and not args.fresh_tower:
         last = json.loads(last_file.read_text()).get(face)
         if last and abs(last["down_mm"] - args.prior_down_mm) > LAST_START_MAX_OFF_MM:
             print(f"   the last {face} scan ({last['session']}) found its edge {last['down_mm']:+.1f} mm down, more than "
@@ -1624,7 +2415,15 @@ def scan_main(args) -> tuple[Path | None, bool]:
     session = args.out / time.strftime("autoscan_%Y%m%d_%H%M%S")
     session.mkdir(parents=True, exist_ok=True)
     mover = Mover(args.arm, tool, args.send, poses[args.start], args.joint_speed, args.line_speed)
-    mover.far_speed, mover.parallel_speed = args.far_speed, args.parallel_speed
+    if mover.ros is not None and not args.fake:  # jenga-sim's hand is not the real one
+        time.sleep(0.3)  # the hand joints come in the same /joint_states
+        worst = hand_check(setup, args.arm, dict(mover.ros.positions))
+        if worst is not None and worst > HAND_STOP_DEG and not args.ignore_hand:
+            raise ScanError(f"ring / little finger {worst:.1f} deg off the calibration (limit {HAND_STOP_DEG:.0f}): "
+                            "the Dino is not where it was calibrated. Set the fingers back or pass --ignore-hand")
+        if worst is not None and worst > HAND_WARN_DEG:
+            print(f"   WARNING: ring / little finger {worst:.1f} deg off the calibration: focus searches may take longer")
+    mover.far_speed, mover.parallel_speed, mover.out_speed = args.far_speed, args.parallel_speed, args.out_speed
     mover.line_accel = args.line_accel
     first_shot = next(iter(rows.values()))[0]
     mover.face = (first_shot.aim, first_shot.normal)
@@ -1636,7 +2435,8 @@ def scan_main(args) -> tuple[Path | None, bool]:
     elif holder is not None and holder.get("cam"):
         cam = holder["cam"]
     else:
-        cam = RealCamera(args.device, args.window)
+        record = args.out / time.strftime("dino_%Y%m%d_%H%M%S.mp4") if args.record else None
+        cam = RealCamera(args.device, args.window, record)
         if holder is not None:
             holder["cam"] = cam
     keep = holder is not None and holder.get("cam") is cam
@@ -1662,13 +2462,14 @@ def scan_main(args) -> tuple[Path | None, bool]:
     try:
         st = scanner.scan_face(face, rows, far_in, far_out)
         if carry is not None:
-            carry.update(roll=scanner.roll, mm_per_px=st.mm_per_px)
+            carry.update(roll=scanner.roll, mm_per_px=st.mm_per_px, turn_deg=cam.turn_deg)
         if st.rows:  # where the first block of this face was found: the start of the next scan
             data = json.loads(last_file.read_text()) if last_file.exists() else {}
             first = st.rows[0]
             data[face] = {"depth_mm": first["depth_mm"], "down_mm": first["down_mm"], "layer": first["layer"],
                           "session": session.name}
             last_file.write_text(json.dumps(data, indent=2))
+            save_rigid(args.out / RIGID_FILE, face, st, cam.turn_deg, math.degrees(scanner.roll), session.name)
         a = approach(args)
         mover.joint_move(poses[args.end], args.end, a["speed"], None if args.via else a["slow_start"], a["min_s"])
         finished = True
@@ -1712,6 +2513,8 @@ def replay_main(args) -> None:
 
 def add_scan_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--dashboard", action="store_true", help="stage display in the browser instead of the camera window")
+    p.add_argument("--ignore-hand", action="store_true",
+                   help=f"scan even with the ring / little finger more than {HAND_STOP_DEG:.0f} deg off the calibration")
     p.add_argument("--port", type=int, default=DEFAULT_PORT, help="of the dashboard")
     p.add_argument("--fast", action="store_true", help="shorter waits and fewer focus samples: " + str(FAST))
     p.add_argument("--preset", default=None, help="named settings (write --preset=NAME): " + ", ".join(PRESETS))
@@ -1754,6 +2557,28 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
                    help="mm/s of the passes along the layer (--blur-test)")
     p.add_argument("--blur-v-speeds", type=float, nargs="*", default=[2.0, 5.0, 10.0],
                    help="mm/s of the passes up / down over the block with the widest stopped gap (--blur-test)")
+    p.add_argument("--roll-test", type=int, default=None, metavar="LAYER",
+                   help="instead of the scan: level on the middle block of this layer (teammate number, L08 = "
+                        "floor 9), then turn the Dino by --roll-test-degs and measure each image as it is and "
+                        "turned level in software (is --soft-level as good as levelling with the arm?)")
+    p.add_argument("--repeat-test", type=int, default=None, metavar="LAYER",
+                   help="full search on the middle block of LAYER and its row shot, appended to <out>/"
+                        f"{REPEAT_FILE}: run again after re-seating the Dino, the table shows how far it moved")
+    p.add_argument("--repeat-label", default="", help="name of this --repeat-test run (e.g. jig1, pick2)")
+    p.add_argument("--defocus-test", type=int, default=None, metavar="LAYER",
+                   help="focus on the middle block of LAYER (teammate layer, 8 = floor 9), then shoot each block of "
+                        "the row at the found depth + --defocus-test-mm: gap px against depth error (defocus_test.csv)")
+    p.add_argument("--defocus-test-mm", type=float, nargs="*", default=DEFOCUS_TEST_MM,
+                   help="depth offsets (mm, + = deeper) of --defocus-test")
+    p.add_argument("--roll-test-degs", type=float, nargs="*", default=ROLL_TEST_DEGS,
+                   help="Dino turns (deg) about its axis from the levelled one (--roll-test)")
+    p.add_argument("--soft-level", action="store_true",
+                   help="DRAFT: level the edge by turning the image (once per face), not the arm")
+    p.add_argument("--edge-ok-px", type=float, default=None,
+                   help="DRAFT: a reference edge this close to the image centre is not centred (default: centre "
+                        "to 25 px)")
+    p.add_argument("--focus-predict", action="store_true",
+                   help="DRAFT: focus peak from 2 samples + 1 to confirm, the usual search if that fails")
     p.add_argument("--keep-camera", action="store_true", help="run: one Dino reader for all faces")
     p.add_argument("--prior-from-last", action="store_true",
                    help="start the search at the depth and edge height of the last scan of this face (same place)")
@@ -1763,10 +2588,34 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
                    help="--sweep: the second reference searches near the first one's depth (wide only if that fails)")
     p.add_argument("--shot-settle-s", type=float, default=SETTLE_S,
                    help="wait after stopping at a block before its shot (--sweep, --blur-test)")
+    p.add_argument("--columns", action="store_true",
+                   help="one taught arm pose per column of end faces (column_poses in scan_setup.json), the "
+                        "layers of a column by moving up / down only")
     p.add_argument("--glide", action="store_true", help="DRAFT: depth and height like --sweep, but every layer in "
                    "one pass along it without stopping, every frame measured")
     p.add_argument("--glide-speed", type=float, default=30.0, help="mm/s of the passes along a layer (--glide)")
     p.add_argument("--sweep-retreat-mm", type=float, default=10.0, help="out from the face between rows (--sweep)")
+    p.add_argument("--rigid", action="store_true",
+                   help="DRAFT: the Dino sits as in the last scan of the face (jig on the hand, or not picked again): "
+                        f"its turn, scale, depths and heights from <out>/{RIGID_FILE}, one short focus search per face")
+    p.add_argument("--rigid-trust", action="store_true",
+                   help="DRAFT --rigid: no focus search on the first block either, only the check of every row")
+    p.add_argument("--out-speed", type=float, default=None,
+                   help="DRAFT: mm/s of straight moves away from the face (default: --line-speed)")
+    p.add_argument("--record", action="store_true",
+                   help="save the Dino's video of the scan to <out>/dino_<time>.mp4 (the last shot / search on it)")
+    p.add_argument("--sweep-focus", action="store_true",
+                   help="short focus searches as one move along the lens axis without stopping (every frame "
+                        "measured) instead of stop-and-look steps")
+    p.add_argument("--sweep-focus-speed", type=float, default=4.0, help="mm/s of --sweep-focus")
+    p.add_argument("--fresh-tower", action="store_true",
+                   help="--rigid without anything of the last tower (per-layer depth / height, per-block "
+                        "height, the last start): only the Dino's turn, scale and usual focus value")
+    p.add_argument("--refocus-below", type=float, default=RIGID_REFOCUS,
+                   help="--rigid / --columns: a shot whose focus value is under this x the face's usual one gets a "
+                        "short focus search (0.8 ~ 1.3 mm off; 0.6 ~ 2 mm, gaps then up to ~2 px narrower)")
+    p.add_argument("--lazy-row", action=argparse.BooleanOptionalAction, default=False,
+                   help="DRAFT: a side wider than the middle decides 빼안빼: the third block of that row is not shot")
     p.add_argument("--sweep-edge-px", type=float, default=100.0,
                    help="centre the edge again when it is this far from the image centre (--sweep)")
     p.add_argument("--line-speed", type=float, default=10.0, help="mm/s of straight moves")
@@ -1823,6 +2672,8 @@ def main() -> None:
     o = sub.add_parser("order", help="pull order of one or more sessions: widest gap first + 빼안빼 rule")
     o.add_argument("sessions", nargs="+", type=Path)
     o.add_argument("--candidates", type=Path, help="also write the teammate's candidates file here")
+    h = sub.add_parser("hand", help="ring / little finger now (/joint_states, read only) against the calibration")
+    h.add_argument("--arm", choices=("right", "left"), default="right")
     c = sub.add_parser("score", help="streaks per face and merged, rule off / on, against pulled-by-hand results")
     c.add_argument("sessions", nargs="+", type=Path)
     c.add_argument("--truth", nargs="+", required=True, metavar="FLOOR=MARKS",
@@ -1853,6 +2704,18 @@ def main() -> None:
         return
     if args.cmd == "dashboard":
         return replay_main(args)
+    if args.cmd == "hand":
+        from jenga_vision.arm_slider import ArmNode
+        node = ArmNode(args.arm, False, node_name="jenga_hand_check")
+        t0 = time.time()
+        while not any(n.startswith(f"ah{args.arm[0]}_joint") for n in node.positions) and time.time() - t0 < 20:
+            time.sleep(0.1)
+        worst = hand_check(json.loads(SETUP_FILE.read_text()), args.arm, dict(node.positions))
+        node.shutdown()
+        if worst is not None:
+            verdict = "OK" if worst <= HAND_WARN_DEG else ("check" if worst <= HAND_STOP_DEG else "scan refuses")
+            print(f"   largest difference {worst:.1f} deg: {verdict} (warn > {HAND_WARN_DEG:.0f}, stop > {HAND_STOP_DEG:.0f})")
+        return
     if args.cmd == "order":
         order_main(args.sessions, args.candidates)
         return

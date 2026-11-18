@@ -58,3 +58,33 @@ def test_margin_order_on_the_tower_of_2026_11_03():
     truth = parse_truth(["3=안빼안", "4=안빼안", "5=빼안빼", "6=안빼안", "7=안빼안", "8=빼안빼", "9=안빼안", "10=안빼안",
                          "11=빼안빼", "12=빼안빼", "13=빼안빼", "14=안빼안", "15=안빼안"])
     assert streak(pick_order(px), truth) == 11
+
+
+def test_geometry_from_the_shots(tmp_path):
+    """A block 10 px under the image centre is 10 px x scale lower; its top is half the gap under the band."""
+    import csv
+    import json
+
+    from jenga_vision.autoscan import SETUP_FILE, block_geometry, order_main
+    t = json.loads(SETUP_FILE.read_text())["tower"]
+    s = tmp_path / "autoscan_x"
+    s.mkdir()
+    rows = [dict(key=f"L09:f4:{n}", gap=g, face="-y", layer=8, slot=k, screen=n, depth_mm=3.0, down_mm=-1.0,
+                 row=r, image=f"{n}.png", mm_per_px=0.02) for k, (n, g, r) in
+            enumerate([("left", 0.0, 240), ("middle", 10.0, 250), ("right", 0.0, 240)])]
+    with (s / "shots.csv").open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    blocks, layers, _, block_z = block_geometry([s])
+    model_top = t["z0"] + 9 * t["layer_h"]
+    assert abs(blocks[0]["dz_mm"] - 1.0) < 1e-6  # 1 mm above the model gap, no band
+    assert blocks[1]["gap_mm"] == 0.2
+    assert abs(blocks[1]["top_z_m"] - (model_top + 0.001 - 0.0002 - 0.0001)) < 1e-5
+    assert blocks[1]["out_mm"] == -3.0
+    assert layers[0]["carries"] in ("jenga_L08_S0", "jenga_L08_S2") and abs(layers[0]["spread_mm"] - 0.3) < 1e-6
+    order_main([s], tmp_path / "order.json")
+    d = json.loads((tmp_path / "order.json").read_text())
+    assert d["candidates"][0] == {"block": "jenga_L08_S1", "score": 10.0, "reason": "빼안빼 rule 1 (gap)"}
+    assert len(d["blocks"]) == 3
+    assert d["block_z"]["jenga_L08_S1"]["source"] == "measured" and d["block_z"]["jenga_L08_S1"]["top_residual_mm"] < 0

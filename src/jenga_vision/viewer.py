@@ -11,14 +11,38 @@ gap band with its width in px.
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from jenga_vision.camera import DinoCamera, focus_value
 from jenga_vision.ends import CYAN, YELLOW, measure_end
 from jenga_vision.led import set_led
+
+
+def edge_tilt_deg(frame) -> float | None:
+    """Tilt of the strongest horizontal edge in the middle half of the rows (deg, + = lower on the right), from
+    8 narrow columns; None if the columns disagree. Compared with dino.calibration.<arm>.image_tilt_deg it shows
+    whether the Dino went back into the hand jig turned as at the calibration."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    h, w = gray.shape
+    xs, rows = [], []
+    for x0 in np.linspace(0.1 * w, 0.85 * w, 8).astype(int):
+        p = cv2.GaussianBlur(np.median(gray[:, x0:x0 + w // 20], axis=1).reshape(-1, 1), (1, 9), 0).ravel()
+        d = np.abs(np.diff(p))[h // 4: 3 * h // 4]
+        if d.max() < 3:
+            continue
+        xs.append(x0 + w // 40)
+        rows.append(h // 4 + int(np.argmax(d)))
+    if len(xs) < 5:
+        return None
+    slope, cut = np.polyfit(xs, rows, 1)
+    if np.median(np.abs(np.polyval([slope, cut], xs) - rows)) > 4:
+        return None
+    return float(np.degrees(np.arctan(slope)))
 
 
 def draw_grid(frame, step: int = 40) -> None:
@@ -49,7 +73,14 @@ def main() -> None:
     show_ends = args.ends
     led_on = False
     prev = time.time()
+    try:
+        cal = json.loads(Path("config/scan_setup.json").read_text())["dino"]["calibration"]["right"]
+        ref_tilt = cal.get("image_tilt_deg")
+    except (OSError, KeyError, ValueError):
+        ref_tilt = None
     with DinoCamera(args.device) as cam:
+        if cam.upside_down:
+            print("image turned 180 deg (dino.image_upside_down in config/scan_setup.json)")
         w, h = cam.resolution
         print(f"Dino-Lite /dev/video{args.device} {w}x{h}")
         while True:
@@ -65,6 +96,11 @@ def main() -> None:
                 draw_ends(view, frame)
             info = f"{w}x{h}  {fps:4.1f}fps  focus {focus_value(frame):6.1f}  LED {'ON' if led_on else 'OFF'}"
             cv2.putText(view, info, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            tilt = edge_tilt_deg(frame)
+            text = "edge tilt -" if tilt is None else f"edge tilt {tilt:+.1f} deg"
+            if ref_tilt is not None:
+                text += f"  (calibrated {ref_tilt:+.1f})"
+            cv2.putText(view, text, (8, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
             cv2.imshow("dino", view)
 
             key = cv2.waitKey(1) & 0xFF

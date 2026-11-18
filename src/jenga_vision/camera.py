@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import cv2
@@ -9,13 +10,27 @@ import numpy as np
 
 from jenga_vision.led import set_led
 
+SETUP_FILE = Path("config/scan_setup.json")  # the same file as scan_plan.SETUP_FILE
+
+
+def mounted_upside_down() -> bool:
+    """dino.image_upside_down in SETUP_FILE: the Dino sits turned 180 deg about its axis (hand jig, 2026-11-18:
+    a finger moved down in front of the lens went up on screen). Every frame is then turned back, so image up =
+    world up again for everything that reads the camera (scan, jenga-view, dashboard)."""
+    try:
+        return bool(json.loads(SETUP_FILE.read_text())["dino"].get("image_upside_down", False))
+    except (OSError, KeyError, ValueError):
+        return False
+
 
 class DinoCamera:
-    """`led` is the Dino LED state set on open (off by default); None leaves it alone."""
+    """`led` is the Dino LED state set on open (off by default); None leaves it alone. `upside_down` turns
+    every frame 180 deg (None: from SETUP_FILE, see mounted_upside_down)."""
 
     def __init__(self, device: int = 0, width: int = 640, height: int = 480,
-                 led: bool | None = False):
+                 led: bool | None = False, upside_down: bool | None = None):
         self.device = device
+        self.upside_down = mounted_upside_down() if upside_down is None else upside_down
         self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
         if not self.cap.isOpened():
             raise RuntimeError(f"Cannot open /dev/video{device}")
@@ -41,7 +56,7 @@ class DinoCamera:
         ok, frame = self.cap.read()
         if not ok:
             raise RuntimeError("Frame read failed")
-        return frame
+        return cv2.rotate(frame, cv2.ROTATE_180) if self.upside_down else frame
 
     def release(self) -> None:
         self.cap.release()
@@ -64,7 +79,7 @@ class GeminiCamera(DinoCamera):
 
     def __init__(self, device: int = 0, width: int = 1280, height: int = 800,
                  roi: float = 0.25, zoom: int = 2):
-        super().__init__(device, width, height, led=None)
+        super().__init__(device, width, height, led=None, upside_down=False)
         self.roi, self.zoom = roi, zoom
 
     def read(self) -> np.ndarray:

@@ -111,12 +111,14 @@ class ArmNode:
         self._goal = None
         self._lock = threading.Lock()
         self.client = ActionClient(self.node, FollowJointTrajectory, self.action_name) if send else None
+        self.positions: dict[str, float] = {}
         self.node.create_subscription(JointState, "/joint_states", self._on_state, 10)
 
     def _on_state(self, msg) -> None:
         idx = {n: i for i, n in enumerate(msg.name)}
-        if all(n in idx for n in self.names):
-            with self._lock:
+        with self._lock:
+            self.positions.update(zip(msg.name, msg.position))  # every joint, e.g. the hand's (jenga-autoscan)
+            if all(n in idx for n in self.names):
                 self.state = [msg.position[idx[n]] for n in self.names]
 
     def current(self) -> list[float] | None:

@@ -100,11 +100,21 @@ def dino_tool(d: dict, arm: str = "right") -> np.ndarray:
     return transform(r, d["tip_hand"])
 
 
-def shot_pose(centre: np.ndarray, normal: np.ndarray, standoff: float) -> np.ndarray:
-    """Dino frame in world: tip in front of the face, looking in, image up = world up."""
+def shot_pose(centre: np.ndarray, normal: np.ndarray, standoff: float, yaw_deg: float = 0.0) -> np.ndarray:
+    """Dino frame in world: tip in front of the face, looking in, image up = world up. `yaw_deg` turns it about
+    the vertical through `centre` (+ = counterclockwise seen from above): it looks at the face from the side."""
     z = -normal
     y = np.array([0.0, 0.0, -1.0])
-    return transform(np.column_stack([np.cross(y, z), y, z]), centre + normal * standoff)
+    r = np.column_stack([np.cross(y, z), y, z])
+    if yaw_deg:
+        r = axis_angle(np.array([0.0, 0.0, 1.0]), math.radians(yaw_deg)) @ r
+    return transform(r, centre + normal * standoff)
+
+
+def view_yaw(setup: dict, face: str) -> float:
+    """view_yaw_deg.<face> of scan_setup.json (deg, see shot_pose): the hand jig (2026-11-18) puts the wrist next
+    to the lens, so the arm hits the tower on one side of a face unless the Dino looks at it from the other side."""
+    return float(setup.get("view_yaw_deg", {}).get(face, 0.0))
 
 
 def check_q(q: np.ndarray) -> list[str]:
@@ -155,8 +165,9 @@ def plan_face(chain: Chain, tool: np.ndarray, tower: Tower, face: str, layers: r
     """Route points [{label, via, q}] and a report for one face, or raises with the reason."""
     faces = tower.end_faces(face, layers)
     standoff = setup["dino"]["standoff_m"]
+    yaw = view_yaw(setup, face)
     # Screen order left -> right: image x (right) of the shot pose.
-    right_dir = shot_pose(faces[0][2], faces[0][3], standoff)[:3, 0]
+    right_dir = shot_pose(faces[0][2], faces[0][3], standoff, yaw)[:3, 0]
     points, report = [], []
     q_prev, goal_prev = np.array(seed, float), None
     rng = np.random.default_rng(0)
@@ -192,7 +203,7 @@ def plan_face(chain: Chain, tool: np.ndarray, tower: Tower, face: str, layers: r
     # it with a joint move (well away from the tower), then goes in on a straight line.
     lay0 = min(by_layer)
     row0 = sorted(by_layer[lay0], key=lambda f: f[2] @ right_dir)
-    solve(shot_pose(row0[0][2] + row0[0][3] * (setup["approach_m"] + FAR_M), row0[0][3], standoff),
+    solve(shot_pose(row0[0][2] + row0[0][3] * (setup["approach_m"] + FAR_M), row0[0][3], standoff, yaw),
           f"{face} far in", True)
     first = True
     for layer in sorted(by_layer):
@@ -201,13 +212,13 @@ def plan_face(chain: Chain, tool: np.ndarray, tower: Tower, face: str, layers: r
         for k, (lay, slot, centre, normal) in enumerate(row):
             if k == 0:  # come in from outside the tower at this layer's height
                 out = setup["approach_m"] if first else setup["layer_retreat_m"]
-                solve(shot_pose(centre + normal * out, normal, standoff), f"{face} L{lay:02d} in", True)
+                solve(shot_pose(centre + normal * out, normal, standoff, yaw), f"{face} L{lay:02d} in", True)
                 first = False
-            solve(shot_pose(centre, normal, standoff), f"{face} L{lay:02d}_S{slot} {names[k]}", False)
+            solve(shot_pose(centre, normal, standoff, yaw), f"{face} L{lay:02d}_S{slot} {names[k]}", False)
         lay, slot, centre, normal = row[-1]
         out = setup["layer_retreat_m"] if layer != max(by_layer) else setup["approach_m"]
-        solve(shot_pose(centre + normal * out, normal, standoff), f"{face} L{lay:02d} out", True)
-    solve(shot_pose(centre + normal * (setup["approach_m"] + FAR_M), normal, standoff), f"{face} far out", True)
+        solve(shot_pose(centre + normal * out, normal, standoff, yaw), f"{face} L{lay:02d} out", True)
+    solve(shot_pose(centre + normal * (setup["approach_m"] + FAR_M), normal, standoff, yaw), f"{face} far out", True)
     return points, report
 
 

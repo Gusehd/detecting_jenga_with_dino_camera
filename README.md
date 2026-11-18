@@ -2,19 +2,20 @@
 
 로봇(오른팔 xArm7 + Allegro 손)이 Dino-Lite 현미경 카메라를 지그에서 집어, 게임 시작 전에 젠가 탑을 한 번 스캔합니다. 블록 끝면 위의 틈(px)으로 "쉽게 빠지는 블록"을 고르고, 뽑을 순서를 JSON으로 동료의 뽑기 코드(`jenga_game`)에 넘깁니다.
 
-## 현재 상태 (2026-11-16)
+## 현재 상태 (2026-11-18): Dino를 손 지그에 고정
 
 | 항목 | 값 |
 |---|---|
-| 기본 실행 | 스캔 v2 (`--preset=v2`, git 태그 `scan-v2`) |
-| 전체 시간 | **약 3분 15~20초** (집기 26 s + −y 면 약 76 s + +x 면 약 67 s + 꽂기 26 s). 최선 3:05, 새 탑이면 3:40~4:00 |
-| 정확도 | 손으로 밀어 본 정답 기준 **15 / 15 / 20개 연속** (2026-11-10, 탑 2개 3회). −y 면만 쓰면 8~10 |
-| 보는 층 | 3~15층 (1·2층과 16·17층은 보지 않음) |
-| 아직 안 한 것 | **로봇이 순서대로 실제로 연속 뽑기** (지금 숫자는 살살 밀고 되돌린 결과라 더 낮게 나올 수 있음) |
-| 알려진 한계 | 블록의 한쪽 끝(−y 또는 +x)만 봅니다. "한쪽 옆만 열리고 가운데·반대쪽 0"인 층은 구분이 안 될 때가 있습니다 |
-| 다음 작업 | 2분대 진입 (사진 회전으로 수평 보정 생략, 두 장 초점 계산 등). 검토: `docs/share_20261116/floor.html` |
+| 기본 실행 | **정밀 모드** `--preset=jig-full`: Dino는 약지·새끼 지그에 고정(집기·꽂기 없음), 두 면 모든 블록 실측 |
+| 시간 (새 탑, 두 면) | 정밀 **1.4~1.5분** / 빠른 모드 `jig-fast` **약 1.2~1.3분 (예상, 조정 전 실측 1.4분)**. 1분 아래(54초)는 같은 탑 재스캔처럼 초점·경계를 다시 잡을 일이 없는 최적의 경우만 |
+| 높이 잔차 | 순서 JSON의 `layers[]`, `block_z`: 맨 아래 스캔층 기준, 동료 모델 22.36 mm/층 대비 누적 오차. 반복성 ±0.1 mm |
+| 정확도 | 2026-11-18 정밀 모드 순서대로 **사람이 실제로 뽑아 15개 연속 성공**(16번째부터는 안 해 봄). 같은 탑 밀어 보기 채점은 8/13층, 5개 연속(빡빡한 층이 많아 보수적) |
+| 빠른 모드 잔차 | 빼안빼로 안 찍은 블록은 추정값(`source: estimated`, ±0.3 mm) |
+| 다음 작업 | 모션 단축 약 10초(짧은 이동 최소 시간, 면 사이 직행, 접근 거리), −y 보정 자세로 두 면 1 mm 어긋남 줄이기 |
+| 예전 방식 | 집기·꽂기 포함 v2 (`--preset=v2`, 태그 `scan-v2`, 약 3분 15초)는 그대로 있음 |
+| 알려진 한계 | 블록의 한쪽 끝만 봅니다. 두 면 사이 약 1 mm 어긋남(보정을 +x에서만 함) |
 
-자세한 날짜별 기록과 실측값은 `docs/progress_2026-11-02_robot.md` 맨 위 "지금 기준 실행 가이드"에 있습니다. 공유용 보고 페이지는 `docs/share_20261110/index.html`(인수인계 가이드 포함)입니다.
+자세한 기록은 `docs/progress_2026-11-02_robot.md` 맨 위, 오늘 보고 페이지는 `docs/share_20261118/index.html`입니다.
 
 ## 설치
 
@@ -32,8 +33,10 @@ ROS 2(Humble) 기능은 `source /opt/ros/humble/setup.bash`를 한 터미널에�
 cd ~/CES2027/JENGA_VISION_DINO
 source tools/robot_env.sh                 # 실기: ROS_DOMAIN_ID=42, USB LAN DDS 설정
 ros2 topic hz /joint_states               # 약 30 Hz 나오면 Ctrl+C
-uv run jenga-autoscan run --send --preset=v2 --dashboard
-# Enter → 집기 → −y 스캔 → +x 스캔 → 순서 저장 → 꽂기. 대시보드 http://127.0.0.1:8765/ (F 전체 화면, L 언어)
+uv run jenga-autoscan hand                # 약지·새끼가 보정 때(jig_scan_pose)와 같은지 (읽기만)
+uv run jenga-autoscan run --send --preset=jig-full --no-pick --no-place --out captures/jig1118b [--record]
+# 팔은 jig_ready_1118에서 시작·복귀. Enter → −y 스캔 → +x 스캔 → 순서 저장. --record: Dino 화면을 mp4로
+# (예전 집기·꽂기 방식: uv run jenga-autoscan run --send --preset=v2 --dashboard)
 # 멈추기: 터미널 Ctrl+C (팔은 그 자리에 섬. 탑 옆에서 관절 이동 금지, 인수인계 가이드의 복구 절차 참고)
 ```
 
@@ -59,6 +62,13 @@ uv run jenga-autoscan run --send --preset=v2 --dashboard
    "candidates": [{"block": "jenga_L07_S2", "score": 26.0, "reason": "빼안빼 rule 1 (gap)"},
                   {"block": "jenga_L07_S0", "score": 26.0, "reason": "빼안빼 rule 2 (opposite)"}, ...]}
   ```
+- **추가 필드 (2026-11-18, 블록 크기 잔차·위치):** 위 세 키 옆에 `blocks`, `layers`, `layer_fit`, `geometry_note`가 붙습니다. `candidates`는 그대로라 지금 `jenga_game`(`rules.load_candidates`는 다른 키를 메타로 둠)은 영향이 없습니다. 좌표는 탑 자세(`config/scan_setup.json`)의 world 좌표입니다.
+  - `blocks[]` (찍은 블록마다): `gap_mm`(끝면 위 틈 = 그 층에서 윗층을 받치는 가장 높은 블록보다 이 블록이 낮은 만큼, 잔차), `top_z_m`(그 블록 윗면의 world z), `dz_mm`(측정 윗면 − 모델 윗면, 모델 층 높이 `layer_h`), `out_mm`(끝면이 모델 면보다 바깥으로 나온 양, 초점 기준이라 ±1 mm, sweep·rigid 줄은 줄 단위 값), `end_face_top_m`(끝면 윗모서리 가운데 [x, y, z]), `normal`(면 바깥 방향 xy), `scale`(`measured` / `default`).
+  - `layers[]`: 층마다 가장 높은 블록(`carries`)의 `top_z_m`·`dz_mm`, 층 안 높이 차 `spread_mm`, 평균 `out_mm`.
+  - `layers[]`의 `rise_mm`·`rise_residual_mm`: 맨 아래 스캔층에서 얼마나 올라갔는지, 그리고 동료 모델(`tower.jenga_tf_layer_h`, 22.36 mm)보다 얼마나 낮거나 높은지(누적 잔차), `measured`: 잰 블록.
+  - `block_z.<블록 이름>`: 스캔한 층의 모든 블록. `source`(measured / estimated), `top_residual_mm`, `bottom_residual_mm`(아래층), 그리고 비교용 추정값 `est_top_residual_mm`(±0.3 mm), `est_top_max_residual_mm`(위층 바닥, 추정 상한).
+  - `layer_fit`: 면별로 층 윗면 높이를 직선으로 맞춘 실측 층 높이 `layer_h_mm`와 `z0_m` (층 L의 윗면 = `z0_m` + (L+1) × `layer_h_mm`).
+  - 정밀도: 같은 면 안의 상대 높이와 `gap_mm`는 0.02 mm/px 수준입니다. 절대값(`top_z_m`, `dz_mm`)은 Dino 보정(`jenga-calib`)만큼만 맞습니다.
 - **블록 이름**은 동료 `jenga_tf`와 같은 `jenga_LXX_SY`입니다. `XX`는 0부터 센 층(L00 = 맨 아래, 즉 사람이 말하는 1층 = L00), `Y`는 슬롯 0/1/2(1 = 가운데)입니다. 슬롯은 탑 자세(`config/scan_setup.json`)로 동료 좌표에 맞춰 바꿔 씁니다. 실물로 한 번 대조해 보는 걸 권합니다.
 - **순서가 곧 의미입니다.** 리스트는 위에서부터 뽑을 순서입니다. 층마다 "빼안빼"(양옆이 빠짐) 또는 "안빼안"(가운데가 빠짐)으로 판정합니다. 빼안빼 층은 옆 블록 하나(`gap`) 바로 다음에 반대쪽 옆(`opposite`)이 이어집니다. 가운데 → 옆 순서는 없습니다. `score`는 그 층의 판정 확신도입니다. 가운데 틈과 더 넓은 옆 틈의 차이(px, 절댓값)라서 같은 층 둘은 같은 값입니다. 1 px 이하는 믿기 어려운 판정이고, 리스트 뒤쪽에 옵니다.
 - **스캔은 게임 전에 한 번입니다.** 순서는 처음 탑 기준이고, 게임 중에는 다시 재지 않습니다. 사람이 뽑은 블록은 뽑기 코드 쪽에서 후보에서 빼야 합니다. 쉬운 블록만 뺀다면 처음 순위가 게임 내내 유지된다고 보고 이렇게 설계했습니다.

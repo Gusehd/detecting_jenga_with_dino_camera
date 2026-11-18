@@ -1,0 +1,194 @@
+<title>지그 스캔 결과</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* 2026-11-18 report: Dino in the hand jig. Same look as the 2026-11-16 page. */
+:root {
+  --bg: #f4f5f3;
+  --surface: #ffffff;
+  --ink: #1d2422;
+  --muted: #5c6763;
+  --line: #d6dbd7;
+  --accent: #17625a;
+  --bar: #4f958b;
+  --bar-soft: #b9d6d0;
+  --side: #e6e9e6;
+  --hot: #b4532a;
+  --ok-bg: #dcefe6;
+  --ok-ink: #14573a;
+  --bad-bg: #f8e0dc;
+  --bad-ink: #8c2b1d;
+  --warn-bg: #f6ecd0;
+  --warn-ink: #6d5208;
+  --body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151a19; --surface: #1e2523; --ink: #e8ecea; --muted: #a2adaa; --line: #36403d;
+    --accent: #71c9bc; --bar: #4f9d91; --bar-soft: #2d4a45; --side: #262e2c; --hot: #f0956b;
+    --ok-bg: #173d2e; --ok-ink: #a5e3c6; --bad-bg: #4b211b; --bad-ink: #f6bdb2; --warn-bg: #443713; --warn-ink: #eed58a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151a19; --surface: #1e2523; --ink: #e8ecea; --muted: #a2adaa; --line: #36403d;
+  --accent: #71c9bc; --bar: #4f9d91; --bar-soft: #2d4a45; --side: #262e2c; --hot: #f0956b;
+  --ok-bg: #173d2e; --ok-ink: #a5e3c6; --bad-bg: #4b211b; --bad-ink: #f6bdb2; --warn-bg: #443713; --warn-ink: #eed58a;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15.5px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+main { max-width: 780px; margin: 0 auto; display: grid; gap: 40px; }
+section, header { display: grid; gap: 14px; min-width: 0; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.35; margin: 0; }
+h1 { font-size: 1.85rem; font-weight: 700; }
+h2 { font-size: 1.3rem; font-weight: 700; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 1.02rem; font-weight: 700; }
+p, ul, ol { margin: 0; }
+ul, ol { padding-left: 1.3em; display: grid; gap: 6px; }
+.eyebrow { font-family: var(--mono); font-size: .78rem; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.lede { color: var(--muted); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+code { font-family: var(--mono); font-size: .88em; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.small { font-size: .86rem; color: var(--muted); }
+
+.figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
+.figure .v { font-family: var(--mono); font-size: 1.45rem; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--accent); line-height: 1.3; }
+.figure .k { font-size: .86rem; color: var(--muted); line-height: 1.5; }
+@media (max-width: 620px) { .figures { grid-template-columns: 1fr; } }
+
+.verdict { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 16px 18px; display: grid; gap: 10px; }
+
+.paths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.path { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.path svg { width: 100%; max-width: 190px; height: auto; justify-self: center; }
+.path .cap { font-size: .9rem; line-height: 1.5; }
+.path .cap b { display: block; }
+@media (max-width: 560px) { .paths { grid-template-columns: 1fr; } .path svg { max-width: 170px; } }
+svg .blk { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+svg .side { fill: var(--side); stroke: none; }
+svg .lbl { fill: var(--muted); font-family: var(--mono); font-size: 8px; }
+svg .mv { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+svg .mv.layer { stroke: var(--hot); stroke-dasharray: 4 2.5; }
+svg .arrow { fill: var(--ink); opacity: .55; }
+svg .dot { fill: var(--accent); }
+svg .start { fill: none; stroke: var(--ink); stroke-width: 1.6; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .86rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--accent); }
+.sw.layer { border-top: 2px dashed var(--hot); }
+
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: .82rem; white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: var(--ok-bg); color: var(--ok-ink); }
+.pill { display: inline-block; font-size: .76rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.pill.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.pill.bad { background: var(--bad-bg); color: var(--bad-ink); }
+
+.reasons { list-style: none; padding: 0; gap: 14px; }
+.reasons li { display: grid; grid-template-columns: 2em minmax(0, 1fr); gap: 4px 10px; }
+.reasons .i { font-family: var(--mono); color: var(--accent); font-weight: 500; }
+.reasons p { grid-column: 2; }
+.reasons h3 { grid-column: 2; }
+
+.budget { display: grid; gap: 8px; }
+.brow { display: grid; grid-template-columns: 7.5em minmax(0, 1fr) 4.5em; gap: 10px; align-items: center; font-size: .9rem; }
+.btrack { height: 14px; background: var(--side); border-radius: 3px; position: relative; overflow: hidden; }
+.bfill { position: absolute; inset: 0 auto 0 0; background: var(--bar); border-radius: 3px; }
+.bfill.target { background: var(--bar-soft); }
+.bmark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--hot); }
+.brow .n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+</style>
+<main>
+<header>
+  <p class="eyebrow">2026-11-18 · Dino 손 지그 실기</p>
+  <h1>지그로 고정한 Dino: 두 면 1.4~1.5분, 15개 연속, 블록마다 높이 잔차</h1>
+  <p class="lede">집기·꽂기 없이 Dino를 약지·새끼 지그에 고정한 채로 두 면(−y, +x)을 스캔합니다. 순서 JSON에 블록별 높이 잔차(맨 아래 스캔층 기준, 동료 모델 22.36 mm/층 대비)를 함께 넣었습니다. 새 탑마다 전부 찍는 정밀 모드는 약 1.4~1.5분, 빠른 모드는 약 1.2~1.3분(예상)입니다. 정밀 모드 순서대로 사람이 실제로 뽑아 15개 연속 성공했습니다. 1분 아래(54초)는 같은 탑을 다시 찍어 초점·경계를 다시 잡을 일이 없는 최적의 경우에만 나왔습니다.</p>
+</header>
+
+<section>
+  <div class="figures">
+    <div class="figure"><span class="v">1.4~1.5분</span><span class="k">정밀 모드 <code>jig-full</code>, 새 탑, 39블록 전부 실측</span></div>
+    <div class="figure"><span class="v">±0.1 mm</span><span class="k">층 높이 반복성 (같은 탑 여러 번)</span></div>
+    <div class="figure"><span class="v">15 연속</span><span class="k">정밀 모드 순서대로 사람이 실제로 뽑아 성공 (16번째부터 안 해 봄)</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>두 모드</h2>
+  <div class="tbl"><table>
+    <tr><th>모드</th><th>명령</th><th>블록</th><th>잔차</th><th class="n">새 탑 시간</th></tr>
+    <tr class="hl"><td>정밀 (기본)</td><td><code>--preset=jig-full</code></td><td>전부</td><td>전부 실측</td><td class="n">1.4~1.5분</td></tr>
+    <tr><td>빠른</td><td><code>--preset=jig-fast</code></td><td>빼안빼 층은 3번째 생략</td><td>생략 블록은 추정 ±0.3 mm</td><td class="n">약 1.2~1.3분 (예상)</td></tr>
+    <tr><td>최적의 경우</td><td>같은 탑 재스캔</td><td>생략</td><td>생략 블록 추정</td><td class="n">0.9분</td></tr>
+  </table></div>
+  <p>두 모드 모두 지난 탑의 값을 쓰지 않습니다(<code>--fresh-tower</code>). 손·Dino에 묶인 값(기울기, 배율, 평소 초점값)만 씁니다. 실행: <code>uv run jenga-autoscan run --send --preset=jig-full --no-pick --no-place --out captures/jig1118b</code>, 녹화는 <code>--record</code>.</p>
+</section>
+
+<section>
+  <h2>새 탑에서 시간이 가는 곳</h2>
+  <ul>
+    <li>촬영: 블록당 약 1초, 층 이동 약 1.4초.</li>
+    <li>초점 다시 맞추기: 탑마다 끝면이 2~5 mm 다르고 층마다 들쭉날쭉합니다. 렌즈를 쓸면서 한 번에 찾게 바꿔 한 번에 6~7초에서 약 3~5초가 됐습니다(<code>--sweep-focus</code>).</li>
+    <li>경계 다시 맞추기: 탑 면이 좌우로 기울고 층 높이도 ±1 mm씩 달라 한 번에 약 3초가 듭니다. 첫 줄에서 좌우 기울기를 배워 다음 줄부터 적용합니다.</li>
+    <li>들어가기·나오기: −y는 관절이 약 114° 크게 돌아 면당 10초 안팎입니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>높이 잔차 (JSON <code>layers[]</code>, <code>block_z</code>)</h2>
+  <p>찍을 때 팔이 Dino를 둔 높이(관절값 + 보정)에 화면 속 틈 위치 × 0.0144 mm/px를 더해 블록 윗면의 실제 높이를 구합니다. 기준은 검사한 맨 아래층(3층) 윗면이고, 이상적인 탑(층당 22.36 mm)과의 차이가 잔차입니다.</p>
+  <div class="tbl"><table>
+    <tr><th>층</th><th class="n">3</th><th class="n">5</th><th class="n">7</th><th class="n">9</th><th class="n">11</th><th class="n">13</th><th class="n">15</th></tr>
+    <tr><td>누적 잔차 (mm, 15:34 실행)</td><td class="n">0.00</td><td class="n">−0.51</td><td class="n">−0.61</td><td class="n">−0.90</td><td class="n">−1.68</td><td class="n">−2.28</td><td class="n">−3.16</td></tr>
+  </table></div>
+  <ul>
+    <li>실측 층 높이: −y 22.10~22.14, +x 22.21~22.34 mm/층. 짝수층(+x)과 홀수층(−y)이 약 1 mm 번갈아 어긋나는 무늬는 보정을 +x에서만 해서 생기는 것으로 봅니다. −y 보정 자세 하나를 더 티칭하면 줄일 수 있습니다.</li>
+    <li>빼안빼로 안 찍은 블록: 그 위치의 위층 바닥(같은 면의 좌우 기울기로 계산) − 0.1 mm(이런 블록의 전형적인 틈)로 추정합니다. 다 찍은 15번의 스캔에서 검증하면 오차 중앙값 0.16 mm, 90% 0.36 mm입니다. "위층 바닥"은 논리 상한이지만 기울기 추정이 들어가 0.35 mm까지 넘은 적이 있습니다. 다 찍은 블록에도 비교용 추정값을 같이 적습니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>정확도</h2>
+  <p>16:41 탑을 정밀 모드 순서대로 사람이 실제로 뽑아 보니 <b>15개 연속 성공</b>했고, 어렵지 않게 빠졌습니다(16번째부터는 안 해 봄). 같은 탑을 살살 밀어 보는 채점으로는 13층 중 8층, 5개 연속으로 낮게 나왔는데, 빡빡한 층(4, 6, 9, 10층)이 많아 밀어 보기가 보수적이었던 것으로 봅니다.</p>
+  <ul>
+    <li>밀어 보기와 어긋난 층: 3, 7, 13층(−y), 10, 14층(+x). 한쪽 옆이 가운데보다 넓게 찍혔는데 가운데만 밀린 경우입니다. 블록 한쪽 끝만 보는 한계, 위층 둥근 모서리 그림자도 후보입니다.</li>
+    <li>빠른 모드(16:33, 같은 탑)의 밀어 보기 채점은 9/13층, 6개 연속이었습니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>다음 작업: 모션으로 약 10초</h2>
+  <ul>
+    <li>블록 사이 짧은 이동의 최소 시간 0.4 → 0.25초, 면과 평행 100 → 150 mm/s: 약 6초</li>
+    <li>블록당 프레임 3 → 2장: 약 3초 (측정 흔들림 확인)</li>
+    <li>−y가 끝나면 출발 자세를 거치지 않고 +x로 바로: 약 2~3초 (경로 계산 필요)</li>
+    <li>탑 접근 시작점 200 → 120 mm: 면당 약 0.5~1초</li>
+    <li>−y 면 보정 자세를 하나 더 티칭해 두 면 사이 약 1 mm 어긋남 줄이기</li>
+  </ul>
+</section>
+
+<section>
+  <h2>지그 셋업 (재현에 필요한 것)</h2>
+  <ul>
+    <li>손 자세: 스캔은 <code>hand_poses.json r.jig_scan_pose</code>(약지·새끼를 평행하게, Dino가 엔드이펙터 축과 수직으로 새끼 쪽으로 나옴). 스캔 후 집기용은 <code>r.jig_pick_pose</code>(새끼 쪽으로 벌림). v5 지그는 두 첫마디가 평행해야 하니 약지·새끼를 같이 움직일 것.</li>
+    <li><code>uv run jenga-autoscan hand</code>: 약지·새끼가 보정 때와 3° 안인지 확인(읽기만). 스캔도 시작 때 확인하고 8° 넘으면 거부.</li>
+    <li>Dino가 지그에 180° 돌아 꽂혀 <code>scan_setup.json dino.image_upside_down</code>으로 화면을 돌립니다. <code>jenga-view</code>에 경계 기울기와 보정 때 값이 나옵니다.</li>
+    <li>보정: <code>px_col_mid</code>(+x 8층 가운데, 다이얼 40), 왼쪽·오른쪽 자세와 0.3 mm 안에서 일치. 출발·복귀 자세 <code>jig_ready_1118</code>.</li>
+    <li>첫 시도(손가락을 새끼 쪽으로 최대로 벌린 자세)는 렌즈가 손목 쪽을 봐서 6번 관절이 탑을 밀었습니다. 손가락 자세를 스캔용과 집기용으로 나눠 해결했습니다.</li>
+  </ul>
+</section>
+<p class="small">기록: <code>docs/progress_2026-11-02_robot.md</code> 2026-11-18. 세션 <code>captures/jig1118b/</code>(git에는 없음).</p>
+</main>

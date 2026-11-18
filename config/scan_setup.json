@@ -9,7 +9,9 @@
     "block_len": 0.115,
     "slot_pitch": 0.0385,
     "layers": 17,
-    "_layer_h_note": "0.02186 from the 2026-10-30 check: taught L13 shots on +x were 6 mm lower than with 0.02236 (teammate value), relative to the L01 calibration"
+    "_layer_h_note": "0.02186 from the 2026-10-30 check: taught L13 shots on +x were 6 mm lower than with 0.02236 (teammate value), relative to the L01 calibration",
+    "jenga_tf_layer_h": 0.02236,
+    "_jenga_tf_note": "jenga_tf block_size height (jenga_perception tower/jenga_tf.py): the nominal the pull planner uses; the order JSON reports rise_residual_mm against it"
   },
   "scan_layers": [
     3,
@@ -34,22 +36,22 @@
     "tool_hand": {
       "right": [
         [
-          -0.260726,
-          0.018766,
-          -0.96523,
-          -0.113452
+          -0.00566,
+          -0.055197,
+          -0.998459,
+          -0.113792
         ],
         [
-          -0.039033,
-          0.998789,
-          0.029961,
-          -0.02725
+          -0.062621,
+          0.996535,
+          -0.054736,
+          -0.042608
         ],
         [
-          0.964623,
-          0.045488,
-          -0.259678,
-          0.07796
+          0.998021,
+          0.062214,
+          -0.009097,
+          0.064684
         ],
         [
           0.0,
@@ -62,24 +64,51 @@
     "tip_to_focus_m": 0.025,
     "calibration": {
       "right": {
-        "pose": "cali_way_3",
+        "pose": "px_col_mid",
         "q": [
-          0.07126,
-          0.63395,
-          0.55729,
-          0.86867,
-          3.17105,
-          1.22131,
-          2.8325
+          0.43772,
+          0.43058,
+          0.16907,
+          1.19385,
+          2.87489,
+          0.74378,
+          3.20175
         ],
         "face": "+x",
-        "layer": 1,
-        "slot": 0,
+        "layer": 7,
+        "slot": 1,
         "aim": "top edge",
-        "date": "2026-10-30 14:41"
+        "date": "2026-11-18 14:32",
+        "hand_pose": "jig_scan_pose",
+        "hand_q": [
+          1.24406,
+          -0.23317,
+          1.41586,
+          1.2594,
+          0.82988,
+          0.97868,
+          1.43274,
+          1.36524,
+          0.86056,
+          0.632,
+          1.41586,
+          1.35604,
+          -0.04449,
+          1.75334,
+          -0.14573,
+          1.31922,
+          0.13959,
+          1.72726,
+          0.04755,
+          1.26553
+        ],
+        "image_tilt_deg": -0.2,
+        "_note": "2026-11-18 scan hand pose jig_scan_pose (Dino straight out of the hand), dial 40, taught px_col_mid; left/right taught poses agree within 0.3 mm in depth and height. image_tilt_deg from captures/20261118_140800_698.png"
       }
     },
-    "_tool_note": "tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, z = optical axis, y = image down). A missing arm uses the other one mirrored. tip_to_focus_m: Dino tip behind the focus point (measured at dial 30, only for the sim clearance)."
+    "_tool_note": "tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, z = optical axis, y = image down). A missing arm uses the other one mirrored. tip_to_focus_m: Dino tip behind the focus point (measured at dial 30, only for the sim clearance).",
+    "image_upside_down": true,
+    "_upside_down_note": "2026-11-18 hand jig: the Dino sits turned 180 deg, camera.DinoCamera turns every frame back"
   },
   "faces": {
     "right": [
@@ -104,5 +133,38 @@
   },
   "jig_y": 0.0,
   "_jig_note": "jig_y: world y of the Dino jig centre (m). 0 = robot centre line (assumed, NOT measured); left pick poses = right ones mirrored and shifted by 2*jig_y.",
-  "aim": 1.0
+  "aim": 1.0,
+  "view_yaw_deg": {
+    "+x": 0.0,
+    "-y": 0.0
+  },
+  "run_faces": {
+    "+x": {
+      "seed": "jig_ready_1118",
+      "via": [],
+      "end": "jig_ready_1118",
+      "prior_depth_mm": 0.0,
+      "prior_down_mm": 0.0
+    },
+    "-y": {
+      "seed": "jig_ready_1118",
+      "via": [],
+      "end": "jig_ready_1118",
+      "prior_depth_mm": 0.0,
+      "prior_down_mm": 0.0
+    }
+  },
+  "_jig_run_note": "2026-11-18 scan hand pose: straight view (view_yaw 0), +x from/to jig_ready_1118 (px_col_mid 120 mm back along the lens). Model clearance: wrist joints >= 41 mm, arm >= 65 mm",
+  "column_poses": {
+    "+x": {
+      "left": "px_col_left",
+      "middle": "px_col_mid",
+      "right": "px_col_right"
+    },
+    "-y": {
+      "left": "my_col_left",
+      "middle": "my_col_mid",
+      "right": "my_col_right"
+    }
+  }
 }

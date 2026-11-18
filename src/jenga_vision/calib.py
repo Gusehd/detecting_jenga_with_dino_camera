@@ -25,6 +25,7 @@ import argparse
 import json
 import math
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -42,6 +43,8 @@ def main() -> None:
     parser.add_argument("--face", choices=list(FACE_NORMALS), required=True)
     parser.add_argument("--layer", type=int, required=True, help="teammate's layer, L00 = bottom")
     parser.add_argument("--slot", type=int, choices=(0, 1, 2), required=True, help="0 = image left, 1 = middle")
+    parser.add_argument("--hand", help="hand pose (config/hand_poses.json) the fingers had at the shot: stored as "
+                        "hand_q, jenga-autoscan compares the ring / little finger with it (Dino in the hand jig)")
     parser.add_argument("--write", action="store_true", help=f"save into {SETUP_FILE}")
     args = parser.parse_args()
 
@@ -81,6 +84,9 @@ def main() -> None:
     d.setdefault("calibration", {})[args.arm] = {
         "pose": args.pose, "q": q, "face": args.face, "layer": args.layer, "slot": args.slot,
         "aim": "top edge", "date": time.strftime("%Y-%m-%d %H:%M")}
+    if args.hand:
+        hands = json.loads(Path("config/hand_poses.json").read_text())[args.arm[0]]
+        d["calibration"][args.arm].update(hand_pose=args.hand, hand_q=hands[args.hand])
     d["_tool_note"] = ("tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, "
                        "z = optical axis, y = image down). A missing arm uses the other one mirrored. "
                        "tip_to_focus_m: Dino tip behind the focus point (measured at dial 30, only for the sim clearance).")

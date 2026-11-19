@@ -45,7 +45,8 @@ from jenga_vision.kinematics import URDF, axis_angle, load_joints, transform
 from jenga_vision.scan_plan import SETUP_FILE, arm_tool
 
 CHECKS = 2  # goes with the new tool to check (and correct again)
-DEPTH_OK_M, HEIGHT_OK_M, LEVEL_OK_DEG = 0.0002, 0.0001, 0.7  # a check this close needs no more correction
+DEPTH_OK_M, HEIGHT_OK_M, LEVEL_OK_DEG = 0.0005, 0.0001, 0.7  # a check this close needs no more correction
+# (depth: a refocus repeats within about +-0.3 mm on the robot, 2026-11-19 checks +0.34, -0.34)
 SWEEP_STEP_M = 0.0015  # depth sweep step (the focus curve's s is about 2 mm)
 PAST_PEAK = 0.6  # the sweep stops below this x the best so far, once the peak is clear
 PEAK_RATIO = 1.6  # a clear peak: this x the median of the sweep, not at its ends

@@ -115,6 +115,7 @@ RUN_LAYERS = [2, 14]  # floors 3..15: not floors 1, 2 nor the top two (user, 202
 # run without options = the 2026-11-18 hand jig scan (Dino mounted once with `mount`, no pick / place);
 # --preset=none for the old defaults, --pick / --place for the 11-09 quick pick / place
 RUN_PRESET = "jig-full"
+HOME_SPEED = 20.0  # deg/s of the last move of run to run_home
 RUN_OUT = "jig1118b"  # in captures/: the plan cache and per-face state of the 11-18 jig calibration
 # Per face, as tested on the real robot 2026-11-03. -y: straight from home, entering at the top layer
 # (cali_way_1 made the cables hit the tower; entering low passes 116 mm from the axis instead of 157).
@@ -2517,8 +2518,82 @@ def run_main(args) -> None:
         args.camera_holder["cam"].release()
     if not args.no_place and not timed_task("place_dino"):
         print("stopped in place_dino: the pull order above is still valid")
+        return report()
+    home = None if args.no_home else (args.home or json.loads(SETUP_FILE.read_text()).get("run_home"))
+    if home:
+        go_home(args, home)
     args.dash.event(stage="done", ended=time.time())
     report()
+
+
+def go_home(args, name: str) -> None:
+    """run: the last move, a joint move from the scans' end pose (jig_ready_1118, away from the tower) to
+    `name` of arm_poses.json (the teammate's home: jenga_autoscan home-pose)."""
+    target = json.loads(POSES_FILE.read_text())[args.arm][name]
+    if not args.send:
+        print(f"\n(virtual) the arm would go to '{name}'")
+        return
+    from jenga_vision.arm_slider import ArmNode
+    node = ArmNode(args.arm, True, node_name="jenga_autoscan_home")
+    try:
+        t0 = time.time()
+        while node.current() is None and time.time() - t0 < 10:
+            time.sleep(0.05)
+        if node.current() is None or not node.client.wait_for_server(timeout_sec=5):
+            print(f"\nnot going to '{name}': no arm state or no trajectory action")
+            return
+        biggest = float(np.degrees(np.max(np.abs(np.array(target) - np.array(node.current())))))
+        seconds = max(2.0, biggest / HOME_SPEED)
+        print(f"\n===== {name} =====\n   joint move: largest joint {biggest:.0f} deg at {HOME_SPEED:.0f} deg/s, {seconds:.1f} s")
+        node.move(target, seconds)
+        try:
+            node.done.wait(seconds + 10)
+        except KeyboardInterrupt:
+            node.stop()
+            node.done.wait(3)
+            print("Ctrl+C: stopped (arm holds where it is)")
+            return
+        if not node.succeeded:
+            print(f"   move to '{name}' failed: {node.result}")
+    finally:
+        node.shutdown()
+
+
+# Arms mounted mirror-image across world y = 0 (dual_robot.urdf): left joints -> right joints with these signs
+# give the mirrored pose (checked on random poses, 2026-11-19: 0.03 mm)
+MIRROR_SIGNS = (-1, 1, -1, 1, -1, 1, -1)
+
+
+def home_pose_main(args) -> None:
+    """The teammate's home for the right arm = the left arm now, mirrored (read only from /joint_states).
+    Saved as arm_poses.json right.<name> and as run_home of scan_setup.json (run goes there at the end)."""
+    from jenga_vision.arm_slider import ArmNode
+    src, dst = ("left", "right") if args.arm == "right" else ("right", "left")
+    node = ArmNode(src, False, node_name="jenga_home_pose")
+    t0 = time.time()
+    while node.current() is None and time.time() - t0 < 20:
+        time.sleep(0.1)
+    q = node.current()
+    node.shutdown()
+    if q is None:
+        raise SystemExit(f"no /joint_states of the {src} arm (ROS sourced? ROS_DOMAIN_ID?)")
+    mirrored = [round(float(v) * s, 5) for v, s in zip(q, MIRROR_SIGNS)]
+    print(f"{src} arm now (deg):      " + " ".join(f"{math.degrees(v):7.1f}" for v in q))
+    print(f"{dst} arm '{args.name}' (deg): " + " ".join(f"{math.degrees(v):7.1f}" for v in mirrored))
+    if not args.write:
+        print("not saved (add --write)")
+        return
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    for path in (POSES_FILE, SETUP_FILE):
+        shutil.copy(path, path.with_name(f"{path.name}.bak_{stamp}_before_{args.name}"))
+    poses = json.loads(POSES_FILE.read_text())
+    poses.setdefault(dst, {})[args.name] = mirrored
+    POSES_FILE.write_text(json.dumps(poses, indent=2))
+    setup = json.loads(SETUP_FILE.read_text())
+    setup["run_home"] = args.name
+    SETUP_FILE.write_text(json.dumps(setup, indent=2, ensure_ascii=False) + "\n")
+    print(f"saved '{args.name}' to {POSES_FILE} and run_home to {SETUP_FILE} (backups .bak_{stamp}_*): "
+          "run goes there at the end (--no-home to stay)")
 
 
 # --- main --------------------------------------------------------------------------
@@ -2886,6 +2961,9 @@ def main() -> None:
     u.add_argument("--place", dest="no_place", action="store_false", help="place the Dino at the end (place_dino_quick)")
     u.add_argument("--no-pick", action="store_true", help=argparse.SUPPRESS)  # the default now; kept for old launches
     u.add_argument("--no-place", action="store_true", help=argparse.SUPPRESS)
+    u.add_argument("--home", help="saved arm pose to go to at the end (default: run_home of scan_setup.json, "
+                   "set by home-pose)")
+    u.add_argument("--no-home", action="store_true", help="stay at the scans' end pose (jig_ready_1118)")
     u.add_argument("--yes", action="store_true",
                    help="no 'Enter = start' question with --send (also without a terminal, e.g. ros2 launch)")
     k = sub.add_parser("calib", help="after mount: the robot finds where the Dino sits in the hand today "
@@ -2898,6 +2976,11 @@ def main() -> None:
                    "finger prediction (the fingers look as at the calibration but read other angles)")
     k.add_argument("--hand", help="after mount --teach: the taught hand pose, from now on the mount pose (also the "
                    "finger angles of a dry run)")
+    hp = sub.add_parser("home-pose", help="the teammate's home for this arm = the other arm now, mirrored "
+                        "(read only); --write saves it and run goes there at the end")
+    hp.add_argument("--arm", choices=("right", "left"), default="right", help="the arm that gets the home")
+    hp.add_argument("--name", default="home_mirror", help="pose name in arm_poses.json")
+    hp.add_argument("--write", action="store_true")
     m = sub.add_parser("mount", help="once per day: hand torque off, Dino into the jig, Enter, fingers close to the "
                        "calibration pose")
     m.add_argument("--arm", choices=("right", "left"), default="right")
@@ -2948,6 +3031,8 @@ def main() -> None:
     if args.cmd == "mount":
         from jenga_vision.mount import mount_main
         return mount_main(args)
+    if args.cmd == "home-pose":
+        return home_pose_main(args)
     if args.cmd == "compare":
         compare_main(args.a, args.b)
         return

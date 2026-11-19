@@ -60,6 +60,7 @@ uv run jenga-autoscan calib --send --hand jig_mount_<날짜> --write  # 저장: 
 uv run jenga-autoscan mount --send        # 토크 OFF → Dino 꽂고 Enter → 토크 ON → 장착 자세로 굽힘 → 각도 확인
 uv run jenga-autoscan calib --send --write  # 오늘 꽂힌 Dino 위치를 로봇이 재서 보정 갱신 (+x 8층 가운데, 약 3~4분)
 # calib: 깊이 −45~+40 mm, 축 둘레 아무 각도(사진 회전으로 저장, 팔은 안 굴림), 높이 ±24 mm, 옆 ±110 mm를 스스로 찾음
+uv run jenga-autoscan home-pose --write   # 한 번: 지금 왼팔 자세를 거울로 뒤집어 오른팔 home_mirror로 저장 → run이 끝에 거기로 감
 uv run jenga-autoscan hand                # 약지·새끼가 보정 때와 같은지 (읽기만)
 uv run jenga-autoscan run --send [--record]
 # 옵션 없는 run = --preset=jig-full, 집기·꽂기 없음, --out captures/jig1118b (예전 긴 명령과 같은 설정).

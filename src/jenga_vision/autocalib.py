@@ -23,6 +23,9 @@ stands off the model moves the calibration with it.
     ros2 run jenga_vision jenga_autoscan calib --send              # real robot: measure, print, save nothing
     ros2 run jenga_vision jenga_autoscan calib --send --write      # and save into scan_setup.json
     ros2 run jenga_vision jenga_autoscan calib --send --write --hand jig_mount_20261119   # after mount --teach
+    ... --no-predict      the fingers look as at the last calibration although they read other angles
+                          (2026-11-19: the same hold read ring j1 72 deg, the 11-18 calibration 100.5):
+                          start from the calibrated Dino as it is, not from the finger prediction
 
 --write backs up scan_setup.json and moves <out>/.rigid.json aside (its image turn and focus belong to the
 old calibration): the next run does a full sweep and saves a new one.
@@ -138,7 +141,10 @@ def calib_main(args, scan_main, run_faces: dict) -> None:
     tool_cal = arm_tool(setup["dino"], args.arm)
     ref_hq = cal.get("hand_q")
     now_hq, source = hand_now(args, ref_hq or [0.0] * 20)
-    if ref_hq:
+    if args.no_predict:  # the fingers look as at the calibration, only their joint readings differ
+        tool0 = tool_cal
+        print(f"--no-predict: starting from the calibrated Dino as it is (fingers read from {source})")
+    elif ref_hq:
         tool0 = predict_tool(tool_cal, args.arm, ref_hq, now_hq)
         worst = max(abs(math.degrees(a - b)) for a, b in zip(now_hq[12:20], ref_hq[12:20]))
         print(f"fingers ({source}): ring / little up to {worst:.1f} deg off the calibration's '{cal.get('hand_pose')}'")

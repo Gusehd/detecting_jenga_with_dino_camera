@@ -2774,6 +2774,8 @@ def main() -> None:
     add_scan_options(k)
     k.set_defaults(out=CAPTURES_DIR / RUN_OUT, soft_level=True, edge_ok_px=None, no_prompt=False)
     k.add_argument("--write", action="store_true", help="save the new tool into scan_setup.json (backup first)")
+    k.add_argument("--no-predict", action="store_true", help="start from the calibrated Dino as it is, not from the "
+                   "finger prediction (the fingers look as at the calibration but read other angles)")
     k.add_argument("--hand", help="after mount --teach: the taught hand pose, from now on the mount pose (also the "
                    "finger angles of a dry run)")
     m = sub.add_parser("mount", help="once per day: hand torque off, Dino into the jig, Enter, fingers close to the "

@@ -36,7 +36,8 @@ cd <워크스페이스>/src && git clone https://github.com/Gusehd/detecting_jen
 cd .. && rosdep install --from-paths src --ignore-src -y     # python3-usb, python3-tk, python3-opencv 등
 colcon build --symlink-install --packages-select jenga_vision
 source install/setup.bash
-ros2 run jenga_vision jenga_autoscan run --preset=jig-full --no-pick --no-place     # --send 없으면 dry run
+ros2 run jenga_vision jenga_autoscan mount              # 하루 한 번 Dino 장착 (--send 없으면 dry run)
+ros2 run jenga_vision jenga_autoscan run                # 스캔 (--send 없으면 dry run)
 ```
 - **실행 파일 이름:** uv 명령의 `-`를 `_`로 바꾼 이름입니다(`jenga-autoscan` → `jenga_autoscan`, 모두 19개, 목록은 `ros2 pkg executables jenga_vision`). 이름은 `pyproject.toml`의 `[project.scripts]`에서 그대로 읽으므로 새 명령은 거기에만 추가하면 됩니다.
 - **config·captures 위치** (`src/jenga_vision/paths.py`): `$JENGA_VISION_DIR` → 코드가 있는 저장소(uv, `--symlink-install`) → 현재 폴더 → 설치된 `share/jenga_vision`. `--symlink-install` 없이 빌드하면 config는 install에 복사본으로 들어가고, 거기 저장한 자세·보정은 다시 빌드할 때 사라집니다. 이때는 `export JENGA_VISION_DIR=<저장소 경로>`를 쓰세요. `--out`처럼 직접 준 상대 경로는 지금 폴더 기준입니다.
@@ -49,19 +50,27 @@ ros2 run jenga_vision jenga_autoscan run --preset=jig-full --no-pick --no-place 
 cd ~/CES2027/JENGA_VISION_DINO
 source tools/robot_env.sh                 # 실기: ROS_DOMAIN_ID=42, USB LAN DDS 설정
 ros2 topic hz /joint_states               # 약 30 Hz 나오면 Ctrl+C
-uv run jenga-autoscan hand                # 약지·새끼가 보정 때(jig_scan_pose)와 같은지 (읽기만)
-uv run jenga-autoscan run --send --preset=jig-full --no-pick --no-place --out captures/jig1118b [--record]
-# 팔은 jig_ready_1118에서 시작·복귀. Enter → −y 스캔 → +x 스캔 → 순서 저장. --record: Dino 화면을 mp4로
-# (예전 집기·꽂기 방식: uv run jenga-autoscan run --send --preset=v2 --dashboard)
+uv run jenga-autoscan mount --send        # 데모 날 한 번: 오른손 토크 OFF → Dino를 지그에 꽂고 Enter
+                                          # → 토크 ON → 손가락이 보정 자세(jig_scan_pose)로 굽혀짐 → 각도 확인
+uv run jenga-autoscan hand                # 약지·새끼가 보정 때와 같은지 (읽기만)
+uv run jenga-autoscan run --send [--record]
+# 옵션 없는 run = --preset=jig-full, 집기·꽂기 없음, --out captures/jig1118b (예전 긴 명령과 같은 설정).
+# 팔은 jig_ready_1118에서 시작·복귀. Enter → −y 스캔 → +x 스캔 → 순서 저장. 터미널이 없으면(ros2 launch)
+# 또는 --yes면 Enter 없이 시작. --record: Dino 화면을 mp4로.
+# 손가락이 보정보다 8° 넘게 어긋나면 아무것도 움직이지 않고 멈춤(exit 1): mount를 다시 하거나, Dino가 지그에
+# 그대로 있으면 run --send --fix-hand(손가락만 보정 자세로 다시 굽히고 재검사).
+# 순서 파일은 $JENGA_STATE_DIR/jenga_pick_candidates.json, 그리고 ros_pkgs 안에서 돌면 ros_pkgs/game_block.json
+# ($JENGA_GAME_BLOCK로 바꿈)에도 복사.
+# (예전 집기·꽂기 방식: uv run jenga-autoscan run --send --preset=v2 --pick --place --dashboard)
 # 멈추기: 터미널 Ctrl+C (팔은 그 자리에 섬. 탑 옆에서 관절 이동 금지, 인수인계 가이드의 복구 절차 참고)
 ```
 
 | 상황 | 명령 |
 |---|---|
-| Dino를 이미 쥐고 있음 | `run --send --preset=v2 --no-pick --dashboard` |
-| 스캔만 (쥔 채로 시작·끝) | `run --send --preset=v2 --no-pick --no-place` |
+| Dino를 이미 쥐고 있음 (v2) | `run --send --preset=v2 --place --dashboard` |
+| 스캔만 (v2, 쥔 채로 시작·끝) | `run --send --preset=v2` |
 | 집기 / 꽂기만 | `uv run jenga-task pick_dino_quick --send` / `place_dino_quick --send` |
-| 시뮬레이션 (도메인 77) | 터미널 1 `ROS_DOMAIN_ID=77 uv run jenga-sim`, 터미널 2 `ROS_DOMAIN_ID=77 uv run jenga-autoscan run --send --fake --preset=v2` |
+| 시뮬레이션 (도메인 77) | 터미널 1 `ROS_DOMAIN_ID=77 uv run jenga-sim`, 터미널 2 `ROS_DOMAIN_ID=77 uv run jenga-autoscan run --send --fake` (손 장착 시험은 `mount --send --no-torque`, 심에는 토크 서비스 없음) |
 | 이전 설정 | `--preset=v1` 또는 `git checkout scan-v1` |
 | 채점 | `uv run jenga-autoscan score captures/autoscan_<−y> captures/autoscan_<+x> --truth 3=안빼안 4=빼안빼 ...` |
 

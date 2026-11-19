@@ -21,6 +21,15 @@ uv run jenga-task pick_dino --send --step    # 같은 자세, 느린 확인용 (
 - `jenga-autoscan run`은 이제 항상 `pick_dino_quick`, `place_dino_quick`을 쓴다. 옛 지그 자세를 쓰던 `pick_dino_fast`와 시험용 작업은 지웠다(백업 `config/tasks.json.bak_20261109_trials`, `config/arm_poses.json.bak_20261109_*`).
 - 옛 자세 `final_grasp_1`, `_1_1`, `_1_2`, `_1109`(+x 이동 전)는 파일에 남아 있지만 어떤 작업도 쓰지 않는다.
 
+## 2026-11-19 오후: 동료 통합에서 손 검사 실패 → `mount` 명령, run 기본값
+- 동료 로그(`ros2 launch ces_bringup autoscan.launch.py`): 약지·새끼 j1이 73°(보정 100.5°, 99°), 27° 어긋나 스캔 거부. 거부 오류가 `try` 밖에서 나서 노드를 안 닫고 `terminate called … Aborted`(exit 250). 동료 쪽은 오른손에 명령을 보내도 약지·새끼는 스캔 자세를 유지하기로 함(사용자).
+- **`jenga_autoscan mount [--send]`** (`src/jenga_vision/mount.py`): 오른손 토크 OFF(`/ahr_AllegroHandV6Right/set_torque_enabled`, 동료 pose_recorder와 같은 서비스) → Dino 꽂고 Enter → 지금 자세를 명령으로 보낸 뒤 토크 ON → 20개 관절을 `hand_q`로 20°/s → 비교. Ctrl+C면 토크 다시 ON. 동료의 마지막 손 명령 파일(`$JENGA_STATE_DIR/jenga_hand_cmd_right.json`)을 지움. 데모 날 한 번.
+- **주의(실기 미확인):** `jig_scan_pose`의 약지·새끼 j1(100.5°, 99°)과 엄지 등 몇 관절은 URDF 한계(j1 90°) 밖이다. 우리 손 명령은 원래 URDF 한계로 잘랐으므로 `mount`는 목표값만큼 한계를 넓혀 보낸다. 실제 드라이버가 90°에서 자르면 `mount`는 10° 어긋남으로 실패한다 → 그때는 토크 OFF 상태에서 손으로 자세를 잡고 토크 ON 하는 방식으로 바꾸거나 90° 안에서 재보정.
+- **run 기본값:** 옵션 없는 `run` = `--preset=jig-full`, 집기·꽂기 없음(`--pick`/`--place`로 켬, `--no-pick`/`--no-place`는 그대로 받음), `--out captures/jig1118b`; `--preset=none`은 예전 기본. 동료가 넣은 `--yes`와 `game_block.json` 복사(`paths.GAME_BLOCK_FILE`)를 합침. 터미널이 없으면(`ros2 launch`) Enter 없이 시작.
+- 손 검사 실패는 아무것도 움직이지 않고 노드를 닫은 뒤 exit 1. `--fix-hand`: 손가락만 `hand_q`로 다시 굽히고 재검사.
+- `jenga-calib --hand`가 경로 리팩터링(a2620d4) 뒤 `str.read_text`로 죽던 것 고침.
+- 확인: 도메인 77 sim에서 거부 경로(exit 1, abort 없음), `mount --send --no-torque`(0.0° 일치), `run --send --fake --faces my --layers 12 12`(집기·꽂기 없이 순서 저장); 테스트 94개.
+
 ## 2026-11-19: ROS 2 패키지 `jenga_vision` (동료 요청, Jazzy에서 빌드)
 - `ros2/jenga_vision/`(ament_python): `package.xml`(format 3, 의존성 전부 rosdep 키, Jazzy/Noble에서 해석 확인), `setup.py`, `setup.cfg`, `resource/`. 코드·config·테스트는 `../../src/jenga_vision`, `../../config`, `../../tests`로 심볼릭 링크. 루트에 두지 않은 이유: setuptools 61 이상(Jazzy 68.1)은 루트 `pyproject.toml`의 `[project]`로 `setup.py` 값을 덮어씀(이름 `jenga-vision`, 스크립트 `jenga-autoscan`, 직접 확인).
 - 실행 파일은 `pyproject.toml` 스크립트의 `-` → `_` (`ros2 run jenga_vision jenga_autoscan`). 노드·토픽 이름은 원래 모두 소문자였음.

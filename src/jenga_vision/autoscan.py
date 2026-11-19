@@ -88,7 +88,7 @@ from jenga_vision.camera import focus_value
 from jenga_vision.dashboard import DEFAULT_PORT, Dashboard, NoDashboard, replay
 from jenga_vision.focus_search import find_peak
 from jenga_vision.kinematics import Chain
-from jenga_vision.paths import CAPTURES_DIR
+from jenga_vision.paths import CAPTURES_DIR, GAME_BLOCK_FILE
 from jenga_vision.scan_plan import (FACE_NORMALS, SETUP_FILE, Tower, arm_tool, away_from_limits, plan_face_stable,
                                     shot_pose, view_yaw)
 
@@ -112,6 +112,10 @@ REFOCUS_MOVE_M = 0.001  # focus again after moving more than this up / down
 EDGE_SEARCH_STEP_MM = 2.5  # vertical search step for the edge (the image is ~10 mm high at dial 30)
 UNCERTAIN_PX = 1.0  # a layer's middle / side difference this small decides nothing (a repeat differs by 2 px)
 RUN_LAYERS = [2, 14]  # floors 3..15: not floors 1, 2 nor the top two (user, 2026-11-03)
+# run without options = the 2026-11-18 hand jig scan (Dino mounted once with `mount`, no pick / place);
+# --preset=none for the old defaults, --pick / --place for the 11-09 quick pick / place
+RUN_PRESET = "jig-full"
+RUN_OUT = "jig1118b"  # in captures/: the plan cache and per-face state of the 11-18 jig calibration
 # Per face, as tested on the real robot 2026-11-03. -y: straight from home, entering at the top layer
 # (cali_way_1 made the cables hit the tower; entering low passes 116 mm from the axis instead of 157).
 RUN_FACES = [("-y", {"face": "my", "seed": "home", "via": [], "top_first": True, "prior_depth_mm": -10.0,
@@ -344,6 +348,18 @@ def hand_check(setup: dict, arm: str, positions: dict[str, float]) -> float | No
         print(f"   hand finger {f} ({'ring' if f == 3 else 'little'}): now " + " ".join(f"{v:6.1f}" for v in now) +
               "  calibrated " + " ".join(f"{v:6.1f}" for v in was) + " deg")
     return worst
+
+
+def fix_hand(mover, arm: str, setup: dict) -> float | None:
+    """run --fix-hand: the fingers back to the calibration (the Dino still in the jig), then checked again."""
+    from jenga_vision import mount
+    hand = mount.hand_node(arm, True, mover.ros.node)
+    now = mount.wait_hand(hand, 3.0)
+    if now is None:
+        return None
+    mount.close_to(hand, now, mount.calibration_hand_q(arm), True)
+    time.sleep(mount.SETTLE_S)
+    return hand_check(setup, arm, dict(mover.ros.positions))
 
 
 def column_poses(face: str, arm: str) -> dict[str, list[float]]:
@@ -2273,7 +2289,9 @@ def run_main(args) -> None:
         steps = ([] if args.no_pick else ["pick_dino"]) + [f for f, _ in faces] + ([] if args.no_place else ["place_dino"])
         print("the robot will run: " + " -> ".join(steps))
         print(f"layers {args.layers[0]}..{args.layers[1]}, dial 40, jenga-view and jenga-arm closed, arm at home")
-        if input("Enter = start, q = quit > ").strip().lower() == "q":
+        if args.yes or not sys.stdin.isatty():  # ros2 launch / jenga_game: the start button was the confirmation
+            print("--yes (or no terminal): starting without Enter")
+        elif input("Enter = start, q = quit > ").strip().lower() == "q":
             return
         t0 = time.time()
     if not args.no_pick and not timed_task("pick_dino"):
@@ -2313,6 +2331,9 @@ def run_main(args) -> None:
         if state_dir:
             shutil.copy(out, Path(state_dir) / "jenga_pick_candidates.json")
             print(f"copied to {state_dir}/jenga_pick_candidates.json")
+        if GAME_BLOCK_FILE is not None:  # jenga_game / jenga_pick / jenga_stack read this first
+            shutil.copy(out, GAME_BLOCK_FILE)
+            print(f"copied to {GAME_BLOCK_FILE}")
         print("sessions: " + " ".join(map(str, sessions)))
         args.dash.event(order=order_for_page(load_gaps(sessions)))
 
@@ -2419,9 +2440,14 @@ def scan_main(args) -> tuple[Path | None, bool]:
     if mover.ros is not None and not args.fake:  # jenga-sim's hand is not the real one
         time.sleep(0.3)  # the hand joints come in the same /joint_states
         worst = hand_check(setup, args.arm, dict(mover.ros.positions))
+        if worst is not None and worst > HAND_STOP_DEG and args.fix_hand:
+            worst = fix_hand(mover, args.arm, setup)
         if worst is not None and worst > HAND_STOP_DEG and not args.ignore_hand:
-            raise ScanError(f"ring / little finger {worst:.1f} deg off the calibration (limit {HAND_STOP_DEG:.0f}): "
-                            "the Dino is not where it was calibrated. Set the fingers back or pass --ignore-hand")
+            mover.shutdown()  # before the exit: a node destroyed while it spins aborts the process
+            session.rmdir()
+            raise SystemExit(f"STOPPED: ring / little finger {worst:.1f} deg off the calibration (limit "
+                             f"{HAND_STOP_DEG:.0f}): the Dino is not where it was calibrated, nothing moved. Mount it "
+                             "with `jenga_autoscan mount --send` (or close the fingers back: run --fix-hand)")
         if worst is not None and worst > HAND_WARN_DEG:
             print(f"   WARNING: ring / little finger {worst:.1f} deg off the calibration: focus searches may take longer")
     mover.far_speed, mover.parallel_speed, mover.out_speed = args.far_speed, args.parallel_speed, args.out_speed
@@ -2516,9 +2542,13 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--dashboard", action="store_true", help="stage display in the browser instead of the camera window")
     p.add_argument("--ignore-hand", action="store_true",
                    help=f"scan even with the ring / little finger more than {HAND_STOP_DEG:.0f} deg off the calibration")
+    p.add_argument("--fix-hand", action="store_true",
+                   help=f"ring / little finger more than {HAND_STOP_DEG:.0f} deg off: close all fingers back to the "
+                   "calibration pose (the Dino must still be in the jig) and check again")
     p.add_argument("--port", type=int, default=DEFAULT_PORT, help="of the dashboard")
     p.add_argument("--fast", action="store_true", help="shorter waits and fewer focus samples: " + str(FAST))
-    p.add_argument("--preset", default=None, help="named settings (write --preset=NAME): " + ", ".join(PRESETS))
+    p.add_argument("--preset", default=None, help="named settings (write --preset=NAME): " + ", ".join(PRESETS)
+                   + f"; run uses {RUN_PRESET} without one, none = no preset")
     p.add_argument("--settle-s", type=float, default=SETTLE_S,
                    help="wait after a move while searching (the shot itself always waits the full time)")
     p.add_argument("--focus-fall", type=float, default=0.88, help="a focus sample below this x the best has fallen")
@@ -2659,14 +2689,26 @@ def main() -> None:
     r.add_argument("--out", type=Path, default=CAPTURES_DIR / "ranking.json")
     r.add_argument("--candidates", type=Path, help="teammate's candidates file, e.g. "
                    "$JENGA_STATE_DIR/jenga_pick_candidates.json (default: next to --out)")
-    u = sub.add_parser("run", help="pick the Dino, scan -y and +x, write the pull order, place the Dino")
+    u = sub.add_parser("run", help=f"scan -y and +x with the Dino in the hand jig (--preset={RUN_PRESET}), "
+                       "write the pull order")
     add_scan_options(u)
+    u.set_defaults(out=CAPTURES_DIR / RUN_OUT, no_pick=True, no_place=True)
     u.set_defaults(search_out_mm=10.0, search_in_mm=25.0, refocus_mm=8.0, limit_mm=8.0, max_in_mm=14.0, line_speed=15.0)
     u.set_defaults(joint_speed=None)  # per face in RUN_FACES
     u.add_argument("--faces", nargs="+", choices=[s["face"] for _, s in RUN_FACES],
                    default=[s["face"] for _, s in RUN_FACES], help="my = -y, px = +x, in the order of RUN_FACES")
-    u.add_argument("--no-pick", action="store_true", help="the Dino is already in the hand, arm at home")
-    u.add_argument("--no-place", action="store_true", help="keep the Dino in the hand at the end")
+    u.add_argument("--pick", dest="no_pick", action="store_false", help="pick the Dino first (pick_dino_quick)")
+    u.add_argument("--place", dest="no_place", action="store_false", help="place the Dino at the end (place_dino_quick)")
+    u.add_argument("--no-pick", action="store_true", help=argparse.SUPPRESS)  # the default now; kept for old launches
+    u.add_argument("--no-place", action="store_true", help=argparse.SUPPRESS)
+    u.add_argument("--yes", action="store_true",
+                   help="no 'Enter = start' question with --send (also without a terminal, e.g. ros2 launch)")
+    m = sub.add_parser("mount", help="once per day: hand torque off, Dino into the jig, Enter, fingers close to the "
+                       "calibration pose")
+    m.add_argument("--arm", choices=("right", "left"), default="right")
+    m.add_argument("--send", action="store_true", help="really switch the torque and move the fingers (default: dry run)")
+    m.add_argument("--speed", type=float, default=20.0, help="deg/s of the largest finger joint")
+    m.add_argument("--no-torque", action="store_true", help="only close the fingers (jenga-sim has no torque service)")
     u.add_argument("--step", action="store_true", help="Enter before every step of pick and place")
     u.add_argument("--task-arm-speed", type=float, default=10.0, help="deg/s of pick and place")
     u.add_argument("--task-hand-speed", type=float, default=20.0, help="deg/s of the fingers in pick and place")
@@ -2694,12 +2736,20 @@ def main() -> None:
     if "--quick" in sys.argv[1:]:
         p.set_defaults(**QUICK)
         u.set_defaults(**QUICK)
-    for name in [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--preset=")]:
+    names = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--preset=")]
+    if not names and sys.argv[1:2] == ["run"]:
+        u.set_defaults(**{**FAST, **QUICK, **PRESETS[RUN_PRESET]})
+    for name in names:
+        if name == "none":
+            continue
         if name not in PRESETS:
-            raise SystemExit(f"--preset: {', '.join(PRESETS)}")
+            raise SystemExit(f"--preset: {', '.join(PRESETS)}, none")
         for o in (p, u):
             o.set_defaults(**{**FAST, **QUICK, **PRESETS[name]})
     args = parser.parse_args()
+    if args.cmd == "mount":
+        from jenga_vision.mount import mount_main
+        return mount_main(args)
     if args.cmd == "compare":
         compare_main(args.a, args.b)
         return

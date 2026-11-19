@@ -12,6 +12,12 @@ The URDF (only the arm chains are read, see kinematics.py) is the first that exi
   1. $JENGA_URDF
   2. <checkout>/jenga_world/jenga_bringup/bi_manipulator_config/urdf/dual_robot.urdf (the 10/29 copy on the vision PC)
   3. share/bi_manipulator_config/urdf/dual_robot.urdf of the sourced ROS 2 workspace
+
+The game block file (the pull order jenga_game reads first, game_block.json) is the first of:
+  1. $JENGA_GAME_BLOCK
+  2. game_block.json in a folder above the checkout (jenga_ws/src/ros_pkgs/game_block.json on the robot PC)
+  3. <the ros_pkgs folder above the checkout>/game_block.json, created by the first scan
+  None when the checkout is not inside a ros_pkgs tree (e.g. the vision PC): then nothing is written there.
 """
 
 from __future__ import annotations
@@ -57,6 +63,19 @@ def find_urdf() -> Path:
     return candidates[-1]  # missing: the error names the last place looked
 
 
+def game_block_file() -> Path | None:
+    if os.environ.get("JENGA_GAME_BLOCK"):
+        return Path(os.environ["JENGA_GAME_BLOCK"]).expanduser()
+    for folder in CHECKOUT.parents:
+        if (folder / "game_block.json").exists():
+            return folder / "game_block.json"
+    for folder in CHECKOUT.parents:
+        if folder.name == "ros_pkgs":
+            return folder / "game_block.json"
+    return None
+
+
 ROOT = data_root()
 CONFIG_DIR = ROOT / "config"
 CAPTURES_DIR = ROOT / "captures"
+GAME_BLOCK_FILE = game_block_file()

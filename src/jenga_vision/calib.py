@@ -85,7 +85,7 @@ def main() -> None:
         "pose": args.pose, "q": q, "face": args.face, "layer": args.layer, "slot": args.slot,
         "aim": "top edge", "date": time.strftime("%Y-%m-%d %H:%M")}
     if args.hand:
-        hands = json.loads(CONFIG_DIR / "hand_poses.json".read_text())[args.arm[0]]
+        hands = json.loads((CONFIG_DIR / "hand_poses.json").read_text())[args.arm[0]]
         d["calibration"][args.arm].update(hand_pose=args.hand, hand_q=hands[args.hand])
     d["_tool_note"] = ("tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, "
                        "z = optical axis, y = image down). A missing arm uses the other one mirrored. "

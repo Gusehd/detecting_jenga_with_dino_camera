@@ -98,6 +98,17 @@ LINE_ACCEL_MM_S2 = 200.0  # start and stop of a straight move
 RAMP_DT_S = 0.05  # time between trajectory points
 MAX_JOINT_STEP_DEG = 3.0  # per IK step; more = the arm would change configuration
 RETREAT_M = 0.03  # out from the face between layers
+# The arm configuration of each face, fixed (the tower stands in one place): first and last planned point of the
+# jig scan (layers 2..14) as on our PC, the configuration the 2026-11-18 robot scans ran in (-y wrist j5 160-180,
+# j6 -80..-95, j7 265-290). The plan's ends are solved again from these, so the arm can't take another
+# configuration: on the teammate's PC (2026-11-19) -y came out with the wrist flipped (j5 -15, j6 +85, j7 133)
+# and the 186 deg move back to jig_ready_1118 swept the tower over.
+ROUTE = {("right", "-y"): ([-0.69173, -1.51307, 2.03659, 1.24368, 3.19336, -1.33355, 5.11459],
+                           [-0.5679, -1.17622, 1.4082, 1.01752, 2.76289, -1.22413, 4.7139]),
+         ("right", "+x"): ([0.09832, 0.71072, 0.12397, 1.35043, 2.40767, 0.94618, 3.43459],
+                           [0.00513, 0.6177, 0.46695, 1.7739, 2.05785, 0.3974, 3.82999])}
+ROUTE_TOL_DEG = 90.0  # any joint further from the route -> stop (a flipped wrist is 150+ off; the elbow may vary)
+ROUTE_VERSION = "route-2026-11-19"  # in the plan cache key: plans made before the fixed route are not used
 COLUMN_BACK_M = 0.08  # --columns: back along the lens from a column before the joint move to the next one
 SETTLE_S = 1.0  # wait after a move before reading frames: 0.3 s still shakes the focus value (hold test)
 DEFAULT_MM_PER_PX = 0.02  # Dino at dial 30; measured on the first shot when possible
@@ -115,7 +126,8 @@ RUN_LAYERS = [2, 14]  # floors 3..15: not floors 1, 2 nor the top two (user, 202
 # run without options = the 2026-11-18 hand jig scan (Dino mounted once with `mount`, no pick / place);
 # --preset=none for the old defaults, --pick / --place for the 11-09 quick pick / place
 RUN_PRESET = "jig-full"
-HOME_SPEED = 20.0  # deg/s of the last move of run to run_home
+HOME_SPEED = 20.0  # deg/s of the last move of run to run_home (and of the first one to the scans' start)
+START_TOL_DEG = 2.0  # run: the arm this close to the scans' start pose needs no move there
 # The teammate's home for the right arm, where run ends (2026-11-19): the left arm at their home on the robot
 # (/joint_states xarm_left_joint1..7 = -8.0 1.0 24.0 44.0 -74.0 93.0 -43.3 deg), mirrored (MIRROR_SIGNS).
 # From jig_ready_1118 the move is up to 154 deg on joint 7 and 73 on joint 5.
@@ -2483,6 +2495,10 @@ def run_main(args) -> None:
         elif input("Enter = start, q = quit > ").strip().lower() == "q":
             return
         t0 = time.time()
+    start = setup.get("run_faces", {}).get(faces[0][0], {}).get("seed") if faces and args.no_pick else None
+    if start:  # the fixed route starts there (ROUTE): e.g. from the teammate's home first to jig_ready_1118
+        go_home(args, start, json.loads(POSES_FILE.read_text())[args.arm][start], tol_deg=START_TOL_DEG)
+        args.start = start
     if not args.no_pick and not timed_task("pick_dino"):
         print("stopped in pick_dino: nothing else runs")
         args.dash.event(stage="stopped", ended=time.time())
@@ -2541,7 +2557,7 @@ def run_main(args) -> None:
     report()
 
 
-def go_home(args, name: str, target: list[float]) -> None:
+def go_home(args, name: str, target: list[float], tol_deg: float = 0.0) -> None:
     """run: the last move, a joint move from the scans' end pose (jig_ready_1118, away from the tower) to the
     teammate's home (TEAMMATE_HOME, or a saved pose: --home, run_home of scan_setup.json)."""
     if not args.send:
@@ -2557,6 +2573,8 @@ def go_home(args, name: str, target: list[float]) -> None:
             print(f"\nnot going to '{name}': no arm state or no trajectory action")
             return
         biggest = float(np.degrees(np.max(np.abs(np.array(target) - np.array(node.current())))))
+        if biggest <= tol_deg:
+            return
         seconds = max(2.0, biggest / HOME_SPEED)
         print(f"\n===== {name} =====\n   joint move: largest joint {biggest:.0f} deg at {HOME_SPEED:.0f} deg/s, {seconds:.1f} s")
         node.move(target, seconds)
@@ -2611,11 +2629,32 @@ def home_pose_main(args) -> None:
 
 
 # --- main --------------------------------------------------------------------------
+def on_route(arm: str, face: str, tool, q) -> list[float]:
+    """The planned point `q` solved again from the fixed arm configuration of this face (ROUTE), so the arm takes
+    the same configuration on every PC; ScanError if it can't be reached there (nothing has moved yet)."""
+    refs = ROUTE.get((arm, face))
+    if refs is None:
+        return [float(v) for v in q]
+    chain = Chain(arm)
+    goal = chain.fk(np.array(q, float), tool)
+    best = None
+    for ref in refs:
+        got = chain.ik(goal @ np.linalg.inv(tool), np.array(ref, float))
+        if got is not None:
+            off = float(np.degrees(np.max(np.abs(got - np.array(ref)))))
+            if best is None or off < best[1]:
+                best = (got, off)
+    if best is None or best[1] > ROUTE_TOL_DEG:
+        raise ScanError(f"{face}: no arm pose within {ROUTE_TOL_DEG:.0f} deg of the fixed route (ROUTE), nothing moved"
+                        + ("" if best is None else f" (closest {best[1]:.0f} deg off)"))
+    return [round(float(v), 6) for v in best[0]]
+
+
 def planned_ends(args, tool, tower, face: str, layers: range, seed, plan_setup: dict) -> tuple[list, list]:
-    """Joints of the first and last planned point of a face. The plan takes 24 s on -y and only
-    depends on these inputs, so it is kept in <out>/.plan_cache.json."""
-    key = hashlib.sha256(json.dumps([args.arm, np.asarray(tool).tolist(), plan_setup, face, list(layers), list(seed)],
-                                    sort_keys=True).encode()).hexdigest()
+    """Joints of the first and last planned point of a face, in the fixed arm configuration (on_route). The
+    plan takes 24 s on -y and only depends on these inputs, so it is kept in <out>/.plan_cache.json."""
+    key = hashlib.sha256(json.dumps([args.arm, np.asarray(tool).tolist(), plan_setup, face, list(layers), list(seed),
+                                     ROUTE_VERSION], sort_keys=True).encode()).hexdigest()
     cache_file = args.out / ".plan_cache.json"
     cache = json.loads(cache_file.read_text()) if cache_file.exists() else {}
     if key in cache:
@@ -2624,7 +2663,7 @@ def planned_ends(args, tool, tower, face: str, layers: range, seed, plan_setup: 
     pts, _ = plan_face_stable(Chain(args.arm), tool, tower, face, layers, seed, plan_setup)
     for note in away_from_limits(pts, Chain(args.arm)):
         print(f"   {note}")
-    cache[key] = [[float(v) for v in pts[0]["q"]], [float(v) for v in pts[-1]["q"]]]
+    cache[key] = [on_route(args.arm, face, tool, pts[0]["q"]), on_route(args.arm, face, tool, pts[-1]["q"])]
     args.out.mkdir(parents=True, exist_ok=True)
     cache_file.write_text(json.dumps(cache))
     return cache[key]

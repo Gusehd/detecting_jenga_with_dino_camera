@@ -84,3 +84,14 @@ def test_write(tmp_path, monkeypatch):
     assert cal["face"] == "+x" and cal["layer"] == 7 and cal["slot"] == 1
     assert len(list(tmp_path.glob("scan_setup.json.bak_*"))) == 1
     assert not (out / ".rigid.json").exists() and len(list(out.glob(".rigid.json.bak_*"))) == 1
+
+
+def test_route_keeps_the_arm_configuration():
+    # 2026-11-19 teammate PC: -y planned with the wrist flipped; on_route gives the 11-18 configuration, same Dino pose
+    from jenga_vision.autoscan import ROUTE, on_route
+    from jenga_vision.kinematics import Chain
+    flipped = [-0.43192, -0.90688, 2.12582, 0.83385, -0.26467, 1.4791, 2.31922]
+    q = on_route("right", "-y", TOOL, flipped)
+    assert max(abs(a - b) for a, b in zip(q, ROUTE[("right", "-y")][0])) < math.radians(10)
+    chain = Chain("right")
+    assert np.allclose(chain.fk(np.array(q), TOOL), chain.fk(np.array(flipped), TOOL), atol=1e-4)

@@ -1186,6 +1186,14 @@ class Scanner:
         if self.args.rigid and not self.args.motion_only:
             saved = json.loads((self.args.out / RIGID_FILE).read_text()).get(face) \
                 if (self.args.out / RIGID_FILE).exists() else None
+            if not saved and self.args.fresh_tower:
+                # nothing saved yet (a new PC: captures/ is not in git; or after calib --write): still every row
+                # of the hand jig scan, each row's first block searched (rigid_face), never the top / bottom sweep
+                # with the layers between interpolated (2026-11-19 teammate PC: that path pushed the tower over)
+                cal = json.loads(SETUP_FILE.read_text())["dino"].get("calibration", {}).get(self.mover.arm, {})
+                saved = {"session": "none yet", "turn_deg": 0.0, "roll_deg": 0.0, "layers": {}, "focus": None,
+                         "mm_per_px": cal.get("mm_per_px")}
+                print(f"   --rigid: no saved Dino pose for {face} yet: every row from the calibration, searched")
             if saved:
                 return self.rigid_face(face, rows, far_out, st, saved)
             print(f"   --rigid: no saved Dino pose for {face} yet: a full sweep (saved for the next scan)")

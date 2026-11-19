@@ -259,4 +259,4 @@ def write(args, setup: dict, tool: np.ndarray, now_hq, res: dict) -> None:
     rigid = args.out / ".rigid.json"
     if rigid.exists():
         rigid.rename(rigid.with_name(f".rigid.json.bak_{stamp}"))
-        print(f"   {rigid} moved aside: the next run sweeps the faces fully and saves a new one")
+        print(f"   {rigid} moved aside: the next run searches the first block of every row and saves a new one")

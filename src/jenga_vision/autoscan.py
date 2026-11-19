@@ -2511,6 +2511,9 @@ def run_main(args) -> None:
     args.planned_total = sum(len(r) for f, _ in faces for r in face_shots(tower, f, layers).values())
     args.dash.event(total=args.planned_total)
 
+    cal = setup["dino"].get("calibration", {}).get(args.arm, {})
+    print(f"Dino calibration of {cal.get('date', '?')} ({cal.get('pose', '?')}), image turn "
+          f"{setup['dino'].get('image_turn_deg', 0.0):+.1f} deg: {SETUP_FILE}")
     if args.send:
         steps = ([] if args.no_pick else ["pick_dino"]) + [f for f, _ in faces] + ([] if args.no_place else ["place_dino"])
         print("the robot will run: " + " -> ".join(steps))

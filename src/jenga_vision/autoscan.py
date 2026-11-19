@@ -89,7 +89,7 @@ from jenga_vision.dashboard import DEFAULT_PORT, Dashboard, NoDashboard, replay
 from jenga_vision.focus_search import find_peak
 from jenga_vision.kinematics import Chain
 from jenga_vision.clearance import MIN_CLEAR_MM
-from jenga_vision.paths import CAPTURES_DIR, GAME_BLOCK_FILE
+from jenga_vision.paths import CAPTURES_DIR, CONFIG_DIR, GAME_BLOCK_FILE
 from jenga_vision.scan_plan import (FACE_NORMALS, SETUP_FILE, Tower, arm_tool, away_from_limits, plan_face_stable,
                                     shot_pose, view_yaw)
 
@@ -204,6 +204,7 @@ PRESETS["jig-full"] = {**PRESETS["v4"], "lazy_row": False, "fresh_tower": True, 
 # fast: also shoot an edge up to 115 px off the image centre instead of centring it (measured within +-120 px;
 # +-100 px changed 5 % of saved frames by more than 1 px, 2026-11-16), joint moves at 90 deg/s
 PRESETS["jig-fast"] = {**PRESETS["jig-full"], "lazy_row": True, "sweep_edge_px": 115.0, "approach_speed": 90.0}
+RIGID_SEED_FILE = CONFIG_DIR / "rigid_seed.json"  # in git: the start on a PC that has no RIGID_FILE yet
 RIGID_FILE = ".rigid.json"  # in --out: per face, the Dino turn, image scale, depth and edge height per layer
 RIGID_REFOCUS = 0.8  # --rigid: a row's first shot below this x the face's median focus value is refocused: about
 # 1.3 mm off (robot 2026-11-16, --defocus-test 8: focus 0.85-0.9 x at 1 mm, gaps within 0.6 px up to 1 mm, 1.6 at 1.5)
@@ -1223,6 +1224,10 @@ class Scanner:
         if self.args.rigid and not self.args.motion_only:
             saved = json.loads((self.args.out / RIGID_FILE).read_text()).get(face) \
                 if (self.args.out / RIGID_FILE).exists() else None
+            if not saved and RIGID_SEED_FILE.exists():  # a new PC: the 11-18 robot scans' state, from git
+                saved = json.loads(RIGID_SEED_FILE.read_text()).get(face)
+                if saved:
+                    print(f"   --rigid: nothing saved in {self.args.out} yet: {RIGID_SEED_FILE.name} (11-18 scans)")
             if not saved and self.args.fresh_tower:
                 # nothing saved yet (a new PC: captures/ is not in git; or after calib --write): still every row
                 # of the hand jig scan, each row's first block searched (rigid_face), never the top / bottom sweep

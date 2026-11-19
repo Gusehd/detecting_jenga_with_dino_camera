@@ -27,8 +27,8 @@ truth (as for jenga-calib), so a tower that stands off the model moves the calib
     ros2 run jenga_vision jenga_autoscan calib --send --write      # and save into scan_setup.json
     ros2 run jenga_vision jenga_autoscan calib --send --write --hand jig_mount_20261119   # after mount --teach
 
---write backs up scan_setup.json and moves <out>/.rigid.json aside (its image turn and focus belong to the
-old calibration): the next run does a full sweep and saves a new one.
+--write backs up scan_setup.json and sets the image turn of <out>/.rigid.json to 0 (the turn is now in
+image_turn_deg); its scale and focus stay, so the next run skips the first-block searches as before.
 """
 
 from __future__ import annotations
@@ -257,6 +257,10 @@ def write(args, setup: dict, tool: np.ndarray, now_hq, res: dict) -> None:
     SETUP_FILE.write_text(json.dumps(setup, indent=2, ensure_ascii=False) + "\n")
     print(f"saved to {SETUP_FILE} (backup {backup.name})")
     rigid = args.out / ".rigid.json"
-    if rigid.exists():
-        rigid.rename(rigid.with_name(f".rigid.json.bak_{stamp}"))
-        print(f"   {rigid} moved aside: the next run searches the first block of every row and saves a new one")
+    if rigid.exists():  # its image turn was the Dino's turn under the old calibration: now in image_turn_deg
+        shutil.copy(rigid, rigid.with_name(f".rigid.json.bak_{stamp}"))
+        data = json.loads(rigid.read_text())
+        for face in data.values():
+            face["turn_deg"], face["roll_deg"] = 0.0, 0.0
+        rigid.write_text(json.dumps(data, indent=2))
+        print(f"   {rigid}: image turn set to 0 (now in image_turn_deg), the rest kept: the next run is as fast")

@@ -72,7 +72,7 @@ def test_write(tmp_path, monkeypatch):
     monkeypatch.setattr(autocalib, "SETUP_FILE", setup_file)
     out = tmp_path / "captures"
     out.mkdir()
-    (out / ".rigid.json").write_text("{}")
+    (out / ".rigid.json").write_text(json.dumps({"+x": {"turn_deg": -2.8, "roll_deg": 0.0, "focus": 50.0}}))
     tool = TOOL @ autocalib.transform(np.eye(3), [0.0, 0.001, -0.002])
     res = {"q": [0.1] * 7, "mm_per_px": 2.6e-5, "turn_deg": 70.0}
     autocalib.write(Namespace(arm="right", hand=None, out=out), json.loads(setup_file.read_text()), tool, HAND_Q, res)
@@ -83,7 +83,8 @@ def test_write(tmp_path, monkeypatch):
     assert cal["hand_pose"] == "jig_scan_pose" and cal["previous"]["pose"] == "px_col_mid"
     assert cal["face"] == "+x" and cal["layer"] == 7 and cal["slot"] == 1
     assert len(list(tmp_path.glob("scan_setup.json.bak_*"))) == 1
-    assert not (out / ".rigid.json").exists() and len(list(out.glob(".rigid.json.bak_*"))) == 1
+    rigid = json.loads((out / ".rigid.json").read_text())["+x"]
+    assert rigid["turn_deg"] == 0.0 and rigid["focus"] == 50.0 and len(list(out.glob(".rigid.json.bak_*"))) == 1
 
 
 def test_route_keeps_the_arm_configuration():

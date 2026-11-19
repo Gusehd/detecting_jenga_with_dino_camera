@@ -21,6 +21,15 @@ uv run jenga-task pick_dino --send --step    # 같은 자세, 느린 확인용 (
 - `jenga-autoscan run`은 이제 항상 `pick_dino_quick`, `place_dino_quick`을 쓴다. 옛 지그 자세를 쓰던 `pick_dino_fast`와 시험용 작업은 지웠다(백업 `config/tasks.json.bak_20261109_trials`, `config/arm_poses.json.bak_20261109_*`).
 - 옛 자세 `final_grasp_1`, `_1_1`, `_1_2`, `_1109`(+x 이동 전)는 파일에 남아 있지만 어떤 작업도 쓰지 않는다.
 
+## 2026-11-19 저녁: 장착 자세 가르치기(`mount --teach`)와 자동 보정(`calib`)
+- 동료 실기: `mount --send` 뒤 약지·새끼 j1 83.2°, 80.2°(목표 100.5°, 99°). 11-18 `jig_scan_pose`는 손으로 밀어 URDF 한계(90°) 너머에서 `/joint_states`로 저장한 값이라, 위치 명령으로는 못 감(전류 제한 0.23 Nm, 지그에 걸림, 드라이버 한계 중 하나 이상).
+- 사용자 결정: 손으로 꽂는 이상 매번 조금씩 다르니, 장착 뒤 로봇이 직접 Dino 위치를 재서 보정한다. 기준은 탑 블록. 데모 전 한 번이면 됨(1~2분).
+- **`mount --teach --send`**: 토크 OFF → Dino 꽂고 약지·새끼를 손으로 오므림 → Enter → 지금 자세를 명령으로 보내고 토크 ON → 2초 뒤 손이 버티는 자세를 `hand_poses.json r.jig_mount_<날짜>`(측정값)와 `_cmd`(그 명령)로 저장(백업 먼저). `mount`는 보정의 `hand_cmd`(없으면 `hand_q`)를 명령하고 `hand_q`와 비교.
+- **`calib [--send] [--write] [--hand 이름]`** (`src/jenga_vision/autocalib.py`): ① 손가락으로 예측: 지그는 약지 첫마디(`ahr_link_32`, URDF에 새끼 없음)를 따라 움직인다고 보고 보정 때 `hand_q` → 지금 손가락. 동료 손(약지 j1 83°)이면 초점 37 mm, 17° 이동(그대로 스캔했으면 3~4 cm 틀린 곳, 렌즈가 약 2 cm 탑 쪽). ② 그 tool로 보정 블록(+x L07 가운데, `jig_ready_1118`에서 들어감)에 `lock_on`(초점·경계·수평, `--soft-level`, `--edge-ok-px` 없음). ③ 모델 윗모서리에 초점, 화면 수평이 되게 tool 계산 → 새 tool로 다시 가서 확인, 최대 2번. 잼: 축 방향, 높이, 축 둘레 회전. 안 잼(예측값 유지): 옆으로, 축 기울기. 둘 다 초점 위치를 안 바꿈(tool 원점 = 초점). 예측에서 15 mm/15° 넘게 떨어지면 저장 안 함. `--write`: `scan_setup.json` 백업 후 `tool_hand`, `calibration`(hand_q = 지금 손가락, `--hand`면 hand_pose/hand_cmd도) 저장, `captures/jig1118b/.rigid.json`을 옆으로 치움(옛 이미지 회전·초점 기준; jig-full의 `--rigid-trust`는 첫 블록 초점 탐색 없이 보정을 믿음) → 다음 run은 전체 sweep.
+- 이미지 회전 → Dino roll 부호는 가짜 카메라로 정함(−1). 실기에서 반대면 첫 확인에서 "turns the other way, corrected"로 고쳐짐.
+- 확인(가짜 카메라, 탑 오차 0): `--fake-tool 0 2 -3 0 0 5` → 아래 +1.8, 축 −3.0, roll +5.0. `1.5 -1 2 3 -2 -4` → −1.1, +1.9, −4.3(옆·기울기는 안 잼). 도메인 77 sim `--send --fake` 같은 결과. 손가락 83°(설정 사본 `$JENGA_VISION_DIR`) → 예측 37.1 mm/17.3°, 계획·IK 되고 남은 오차 다시 찾음. 테스트 100개(`tests/test_autocalib.py`: 예측, delta, 저장).
+- 실기 순서: `mount --teach --send` → `calib --send --hand jig_mount_<날짜>`(출력 확인) → `--write` → `run --send`. 데모 날: `mount --send` → `calib --send --write` → `run --send`.
+
 ## 2026-11-19 오후: 동료 통합에서 손 검사 실패 → `mount` 명령, run 기본값
 - 동료 로그(`ros2 launch ces_bringup autoscan.launch.py`): 약지·새끼 j1이 73°(보정 100.5°, 99°), 27° 어긋나 스캔 거부. 거부 오류가 `try` 밖에서 나서 노드를 안 닫고 `terminate called … Aborted`(exit 250). 동료 쪽은 오른손에 명령을 보내도 약지·새끼는 스캔 자세를 유지하기로 함(사용자).
 - **`jenga_autoscan mount [--send]`** (`src/jenga_vision/mount.py`): 오른손 토크 OFF(`/ahr_AllegroHandV6Right/set_torque_enabled`, 동료 pose_recorder와 같은 서비스) → Dino 꽂고 Enter → 지금 자세를 명령으로 보낸 뒤 토크 ON → 20개 관절을 `hand_q`로 20°/s → 비교. Ctrl+C면 토크 다시 ON. 동료의 마지막 손 명령 파일(`$JENGA_STATE_DIR/jenga_hand_cmd_right.json`)을 지움. 데모 날 한 번.

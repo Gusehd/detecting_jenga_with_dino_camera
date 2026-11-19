@@ -87,6 +87,8 @@ def main() -> None:
     if args.hand:
         hands = json.loads((CONFIG_DIR / "hand_poses.json").read_text())[args.arm[0]]
         d["calibration"][args.arm].update(hand_pose=args.hand, hand_q=hands[args.hand])
+        if f"{args.hand}_cmd" in hands:  # taught with jenga-autoscan mount --teach: the command that holds it
+            d["calibration"][args.arm]["hand_cmd"] = hands[f"{args.hand}_cmd"]
     d["_tool_note"] = ("tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, "
                        "z = optical axis, y = image down). A missing arm uses the other one mirrored. "
                        "tip_to_focus_m: Dino tip behind the focus point (measured at dial 30, only for the sim clearance).")

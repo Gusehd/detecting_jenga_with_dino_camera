@@ -1,16 +1,28 @@
-"""Put the Dino into the hand jig: torque off, the user pushes the Dino in, Enter, the fingers close to the
-calibration pose (dino.calibration.<arm>.hand_q of scan_setup.json) and hold it. Once per demo day:
+"""Dino in the hand jig, held by the ring and little finger.
 
-    ros2 run jenga_vision jenga_autoscan mount            # dry run: what it would do
-    ros2 run jenga_vision jenga_autoscan mount --send     # real hand
+Once per jig / Dino (then `jenga_autoscan calib --send --hand <name> --write`, see autocalib.py):
 
-The torque service (std_srvs/SetBool, the hand driver's ~/set_torque_enabled) switches the whole hand, so all
-20 joints go limp and all of them go to hand_q. Before the torque comes back the hand's current pose is sent
-as the command, so the fingers hold where the user left them and then close slowly from there.
-Ctrl+C at any point switches the torque back on.
+    ros2 run jenga_vision jenga_autoscan mount --teach --send
+        torque off -> push the Dino in, close ring and little by hand -> Enter -> torque on; the pose the hand
+        then holds is saved in hand_poses.json as <name> (measured) and <name>_cmd (the command that holds it)
 
-Also used by `jenga_autoscan run --fix-hand`: close the fingers back to hand_q (no torque change) when the
-ring / little finger is off before a scan.
+Every demo day:
+
+    ros2 run jenga_vision jenga_autoscan mount --send
+        torque off -> push the Dino in -> Enter -> torque on, the fingers go slowly to the calibration's
+        hand_cmd (else hand_q) and are compared with hand_q
+    ros2 run jenga_vision jenga_autoscan calib --send --write   (where the Dino sits today, about 1-2 min)
+    ros2 run jenga_vision jenga_autoscan run --send      (checks the fingers again before it moves)
+
+Without --send nothing is published and the torque is not touched. The torque service (std_srvs/SetBool,
+the hand driver's ~/set_torque_enabled) switches the whole hand: all 20 joints go limp and all of them are
+commanded. Before the torque comes back the hand's current pose is sent as the command, so nothing jumps to
+an old command. Ctrl+C at any point switches the torque back on.
+
+Why a taught command (2026-11-19): the 11-18 calibration pose jig_scan_pose was pushed by hand to ring / little
+j1 100 deg (URDF limit 90); commanded there the fingers stopped at 83 / 80 deg.
+
+Also used by `jenga_autoscan run --fix-hand`: the fingers back to the calibration (no torque change).
 """
 
 from __future__ import annotations
@@ -39,6 +51,13 @@ def calibration_hand_q(arm: str) -> list[float]:
     if not q:
         raise SystemExit(f"no dino.calibration.{arm}.hand_q in {SETUP_FILE} (jenga-calib --hand)")
     return q
+
+
+def calibration_hand_cmd(arm: str) -> list[float]:
+    """What to command for the calibration pose: hand_cmd (taught with mount --teach: the command under which
+    the hand held hand_q), else hand_q itself (11-18 calibration, a pose pushed by hand)."""
+    cal = json.loads(SETUP_FILE.read_text())["dino"].get("calibration", {}).get(arm, {})
+    return cal.get("hand_cmd") or calibration_hand_q(arm)
 
 
 def hand_node(arm: str, send: bool, node):
@@ -102,44 +121,109 @@ def set_torque(node, arm: str, enabled: bool) -> None:
     print(f"   torque {'ON' if enabled else 'OFF'} ({TORQUE_SERVICES[arm]})")
 
 
+def hold_here(hand, now: list[float]) -> list[float]:
+    """Command the pose the fingers are at (before the torque comes back: no jump to an old command)."""
+    cmd = [float(v) for v in now]
+    for _ in range(5):
+        hand.publish(cmd)
+        time.sleep(0.02)
+    return cmd
+
+
+def finger_text(q: list[float]) -> str:
+    return "  ".join(f"{name} " + " ".join(f"{math.degrees(q[f * 4 + j]):6.1f}" for j in range(4))
+                     for f, name in ((3, "ring"), (4, "little")))
+
+
+def save_hand_pose(arm: str, name: str, measured: list[float], cmd: list[float]) -> None:
+    """hand_poses.json <hand>.<name> = measured, <name>_cmd = the command that holds it (backup first)."""
+    path = hand_slider.POSES_FILE
+    backup = path.with_name(f"{path.name}.bak_{time.strftime('%Y%m%d_%H%M%S')}_before_{name}")
+    backup.write_text(path.read_text())
+    data = json.loads(path.read_text())
+    data.setdefault(arm[0], {})[name] = [round(float(v), 5) for v in measured]
+    data[arm[0]][f"{name}_cmd"] = [round(float(v), 5) for v in cmd]
+    path.write_text(json.dumps(data, indent=2))
+    print(f"   saved '{name}' and '{name}_cmd' to {path} (backup {backup.name})")
+
+
+def teach_main(args, node, hand) -> None:
+    """mount --teach: torque off, Dino in, the user closes the ring / little finger by hand, Enter: torque on,
+    the hand holds there; the pose it settles at is saved. The Dino calibration must then be made with it."""
+    name = args.name or time.strftime("jig_mount_%Y%m%d")
+    input(("the hand is limp" if args.send else "(dry run) here the hand would be limp")
+          + ": push the Dino in, close ring and little by hand so it sits in the hand, hold them, Enter > ")
+    now = wait_hand(hand)
+    if now is None:
+        print("   (no /joint_states: dry run, nothing saved)")
+        return
+    print(f"   at Enter:     {finger_text(now)} deg")
+    cmd = hold_here(hand, now)
+    if args.send:
+        set_torque(node, args.arm, True)
+        args.torque_off = False
+        print("   torque on: let go of the fingers")
+        time.sleep(SETTLE_S + 1.0)
+    held = hand.current() or now
+    print(f"   hand holds:   {finger_text(held)} deg")
+    moved = max(abs(math.degrees(a - b)) for a, b in zip(held[12:20], now[12:20]))
+    if moved > 3.0:
+        print(f"   the fingers moved {moved:.1f} deg after the torque came on (the hand can't hold past its limit or "
+              "force): this is the pose that is saved, the one mount can make again. Check the Dino still sits right.")
+    if not args.send:
+        print("   (dry run: nothing saved)")
+        return
+    save_hand_pose(args.arm, name, held, cmd)
+    print(f"next (arm at jig_ready_1118): the robot finds the Dino in this pose, predicted from the fingers\n"
+          f"   jenga_autoscan calib --send --hand {name}            # measure and print\n"
+          f"   jenga_autoscan calib --send --hand {name} --write    # and save: '{name}' is the mount pose from then on\n"
+          f"every demo day: jenga_autoscan mount --send, jenga_autoscan calib --send --write, then run --send")
+
+
 def mount_main(args) -> None:
     from jenga_vision.arm_slider import start_node, stop_node
     from jenga_vision.autoscan import HAND_STOP_DEG, HAND_WARN_DEG, hand_check
 
-    target = calibration_hand_q(args.arm)
     setup = json.loads(SETUP_FILE.read_text())
-    pose_name = setup["dino"]["calibration"][args.arm].get("hand_pose", "hand_q")
     torque = not args.no_torque
-    print(f"Dino mount, {args.arm} hand: " + ("torque off -> Dino in -> Enter -> " if torque else "")
-          + f"fingers close to '{pose_name}' (the calibration)")
+    if args.teach:
+        if not torque:
+            raise SystemExit("--teach needs the torque off (no --no-torque)")
+        print(f"teach the mount pose, {args.arm} hand: torque off -> Dino in, close ring / little by hand -> Enter -> "
+              "torque on, the pose is saved")
+    else:
+        target, cmd_target = calibration_hand_q(args.arm), calibration_hand_cmd(args.arm)
+        pose_name = setup["dino"]["calibration"][args.arm].get("hand_pose", "hand_q")
+        print(f"Dino mount, {args.arm} hand: " + ("torque off -> Dino in -> Enter -> " if torque else "")
+              + f"fingers to '{pose_name}' (the calibration)")
     if not args.send:
         print("DRY RUN (add --send to really do it): nothing is published, no torque change")
     node = start_node("jenga_mount")
     hand = hand_node(args.arm, args.send, node)
-    torque_off = False
+    args.torque_off = False
     try:
         now = wait_hand(hand)
+        if now is None and args.send:
+            raise RuntimeError(f"no /joint_states of the {args.arm} hand (ROS sourced? ROS_DOMAIN_ID?)")
+        if torque and args.send:
+            set_torque(node, args.arm, False)
+            args.torque_off = True
+        if args.teach:
+            return teach_main(args, node, hand)
         if now is None:
-            if args.send:
-                raise RuntimeError(f"no /joint_states of the {args.arm} hand (ROS sourced? ROS_DOMAIN_ID?)")
             print("   (no /joint_states: dry run from the calibration pose itself)")
             now = target
         if torque:
-            if args.send:
-                set_torque(node, args.arm, False)
-                torque_off = True
             input(("the hand is limp" if args.send else "(dry run) here the hand would be limp")
                   + ": push the Dino into the jig, then Enter (Ctrl+C = torque back on, stop) > ")
             now = wait_hand(hand) or now
             if args.send:
-                for _ in range(5):  # hold where the user left the fingers, whatever was commanded before
-                    hand.publish([hand_slider.clamp(i, v) for i, v in enumerate(now)])
-                    time.sleep(0.02)
+                hold_here(hand, now)
                 set_torque(node, args.arm, True)
-                torque_off = False
+                args.torque_off = False
                 time.sleep(0.3)
                 now = wait_hand(hand) or now
-        close_to(hand, now, target, args.send, args.speed)
+        close_to(hand, now, cmd_target, args.send, args.speed)
         if args.send:
             time.sleep(SETTLE_S)
         worst = hand_check(setup, args.arm, dict(zip(hand.names, hand.current() or target)))
@@ -147,16 +231,17 @@ def mount_main(args) -> None:
             return
         if worst > HAND_STOP_DEG:
             print(f"NOT mounted: ring / little finger {worst:.1f} deg off the calibration (stop > {HAND_STOP_DEG:.0f}). "
-                  "Is the Dino all the way in the jig? Run mount again.")
+                  "Is the Dino all the way in the jig? Run mount again. If it never gets there, the hand can't make "
+                  "the calibration pose: teach one it can (mount --teach --send) and calibrate with it.")
         else:
             print(f"mounted: ring / little finger within {worst:.1f} deg of the calibration"
-                  + (" (check: > warn)" if worst > HAND_WARN_DEG else "") + ". Now: jenga_autoscan run --send")
+                  + (" (check: > warn)" if worst > HAND_WARN_DEG else "") + ". Now: jenga_autoscan calib --send --write, then run --send")
     except (KeyboardInterrupt, EOFError):
         print("\nstopped")
     except RuntimeError as e:
         print(f"\nSTOPPED: {e}")
     finally:
-        if torque_off:
+        if args.torque_off:
             try:
                 set_torque(node, args.arm, True)
             except RuntimeError as e:

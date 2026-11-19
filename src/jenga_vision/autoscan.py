@@ -357,7 +357,7 @@ def fix_hand(mover, arm: str, setup: dict) -> float | None:
     now = mount.wait_hand(hand, 3.0)
     if now is None:
         return None
-    mount.close_to(hand, now, mount.calibration_hand_q(arm), True)
+    mount.close_to(hand, now, mount.calibration_hand_cmd(arm), True)
     time.sleep(mount.SETTLE_S)
     return hand_check(setup, arm, dict(mover.ros.positions))
 
@@ -723,7 +723,8 @@ class FakeCamera(RealCamera):
     the height error, every block has its own gap width (seeded)."""
 
     def __init__(self, mover: Mover, shots: dict[int, list[Shot]], depth_mm: float, lean_mm: float,
-                 drop_mm: float, window: bool, roll_deg: float = 0.0, seed: int = 1):
+                 drop_mm: float, window: bool, roll_deg: float = 0.0, seed: int = 1, true_tool: np.ndarray | None = None):
+        self.true_tool = true_tool  # where the Dino really is in the hand (--fake-tool), else the assumed tool
         self.settle = SETTLE_S
         self.dash = NoDashboard()
         self.turn_deg = 0.0
@@ -764,7 +765,7 @@ class FakeCamera(RealCamera):
     def render(self, n: int) -> list[np.ndarray]:
         ros = self.mover.ros  # during a move the virtual robot's joint states, not the target (--sweep-focus, glide)
         q = ros.current() if ros is not None and ros.current() is not None else self.mover.q
-        d = self.mover.chain.fk(np.array(q, float), self.mover.tool)
+        d = self.mover.chain.fk(np.array(q, float), self.mover.tool if self.true_tool is None else self.true_tool)
         focus = d[:3, 3]
         shot = min(self.shots, key=lambda s: np.linalg.norm(s.aim - focus))
         depth, drop = self.truth(shot)
@@ -1138,6 +1139,8 @@ class Scanner:
         if self.args.columns and not self.args.motion_only:
             return self.column_face(face, rows, st, column_poses(face, self.mover.arm))
         self.enter(face, far_in)
+        if getattr(self.args, "calib_slot", None) is not None:
+            return self.calib_face(face, rows, far_out, st)
         if self.args.blur_test is not None and not self.args.motion_only:
             return self.blur_test(face, rows, far_out, st)
         if self.args.roll_test is not None and not self.args.motion_only:
@@ -1170,6 +1173,60 @@ class Scanner:
                 self.save(st)
             last = row[-1]
             self.mover.line_to(last.pose(st.depth_m - RETREAT_M, st.down_m))
+        self.leave(far_out)
+        return st
+
+    def edge_now(self, n: int = 5) -> tuple[float | None, float | None]:
+        """Median edge row offset from the image centre (px, + = below) and edge tilt (deg) of n frames."""
+        frames = self.cam.frames(n)
+        rows = [r for r in (edge_row(f) for f in frames) if r is not None]
+        tilts = [t for t in (edge_tilt(f) for f in frames) if t is not None]
+        return (float(np.median(rows)) - 240 if rows else None,
+                math.degrees(math.atan(float(np.median(tilts)))) if tilts else None)
+
+    def calib_face(self, face: str, rows: dict[int, list[Shot]], far_out, st: FaceState) -> FaceState:
+        """calib: where the Dino really is in the hand, from the calibration block (jenga_vision.autocalib).
+        Lock on it with the assumed tool, compute the tool that puts the point in focus on the model top edge
+        with the image level, then go there with the new tool and check (twice at most)."""
+        from jenga_vision import autocalib
+        shot = next(s for s in rows[self.args.calib_layer] if s.slot == self.args.calib_slot)
+        print(f"\n== calibration block {face} L{shot.layer:02d} S{shot.slot} ({shot.screen})")
+        self.mover.line_to(shot.pose(st.depth_m - RETREAT_M, st.down_m, self.roll))
+        got = self.lock_on(shot, st, wide=True)
+        if got is None:
+            raise ScanError("the calibration block was not found (nothing saved)")
+        start_tool = self.mover.tool
+        found = None
+        sign = -1  # image turn -> Dino roll (fake camera); checked on the image after the first correction
+        for k in range(1 + autocalib.CHECKS):
+            d, down = (got[0], got[1]) if k == 0 else (st.depth_m, 0.0)
+            err_px, tilt = self.edge_now()
+            if err_px is None or tilt is None or st.mm_per_px is None:
+                raise ScanError("no edge to measure on the calibration block (nothing saved)")
+            found = autocalib.Found(d, down, self.roll, self.cam.turn_deg, err_px * st.mm_per_px / 1000, tilt)
+            print(f"   {'locked' if k == 0 else f'check {k}'}: depth {d * 1000:+.2f} mm, down {down * 1000:+.2f} mm, "
+                  f"edge {err_px:+.1f} px, image turn {self.cam.turn_deg:+.1f} + tilt {tilt:+.1f} deg")
+            if (k > 0 and autocalib.good(found)) or k == autocalib.CHECKS:
+                break
+            before = self.mover.tool
+            self.mover.tool = autocalib.new_tool(before, shot, found, sign)
+            self.roll, self.cam.turn_deg = 0.0, 0.0  # the new tool levels the Dino itself
+            self.last_depth = None
+            self.go(shot, 0.0, 0.0)
+            got = self.focus(shot, 0.0, 0.0, False)  # short search round the new tool's focus
+            if got is None:
+                raise ScanError("no focus with the new tool (nothing saved)")
+            st.depth_m = got[0]
+            self.go(shot, st.depth_m, 0.0)
+            _, tilt2 = self.edge_now(3)
+            turned = found.turn_deg + found.tilt_deg
+            if k == 0 and tilt2 is not None and abs(turned) > 1.0 and abs(tilt2) > abs(turned):
+                print(f"   {tilt2:+.1f} deg off level with the new tool: the Dino turns the other way, corrected")
+                sign = -sign
+                self.mover.tool = autocalib.new_tool(before, shot, found, sign)
+                self.go(shot, st.depth_m, 0.0)
+        self.args.calib_result = {"tool": self.mover.tool, "start_tool": start_tool, "last": found,
+                                  "mm_per_px": st.mm_per_px, "q": list(self.mover.q)}
         self.leave(far_out)
         return st
 
@@ -2403,7 +2460,8 @@ def scan_main(args) -> tuple[Path | None, bool]:
     if face not in FACE_NORMALS:
         raise SystemExit("--face: px, py, mx or my")
     tower = Tower(setup["tower"], setup.get("aim", 0.5))
-    tool = arm_tool(setup["dino"], args.arm)
+    tool = getattr(args, "tool", None)  # calib: the tool predicted from the fingers
+    tool = arm_tool(setup["dino"], args.arm) if tool is None else tool
     if not setup["dino"].get("tool_hand"):
         raise SystemExit("Dino not calibrated (run jenga-calib first)")
     layers = range(args.layers[0], args.layers[1] + 1)
@@ -2457,8 +2515,13 @@ def scan_main(args) -> tuple[Path | None, bool]:
     fake = args.fake or not args.send
     holder = getattr(args, "camera_holder", None)  # run --keep-camera: one Dino reader for all faces
     if fake:
+        true_tool = None
+        if getattr(args, "fake_tool", None):  # mm x y z, deg about x y z, in the Dino frame
+            from jenga_vision.kinematics import rpy_matrix, transform
+            dx, dy, dz, rx, ry, rz = args.fake_tool
+            true_tool = tool @ transform(rpy_matrix(*np.radians([rx, ry, rz])), np.array([dx, dy, dz]) / 1000)
         cam = FakeCamera(mover, rows, args.fake_depth_mm, args.fake_lean_mm, args.fake_drop_mm, args.window,
-                         args.fake_roll_deg)
+                         args.fake_roll_deg, true_tool=true_tool)
     elif holder is not None and holder.get("cam"):
         cam = holder["cam"]
     else:
@@ -2674,6 +2737,9 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--fake-lean-mm", type=float, default=1.5, help="fake camera: + this per 10 layers")
     p.add_argument("--fake-drop-mm", type=float, default=0.6, help="fake camera: gaps this much lower")
     p.add_argument("--fake-roll-deg", type=float, default=4.0, help="fake camera: Dino turned in the hand")
+    p.add_argument("--fake-tool", type=float, nargs=6, default=None, metavar=("X", "Y", "Z", "RX", "RY", "RZ"),
+                   help="fake camera: the Dino really sits this far (mm) and turned (deg) in its own frame from the "
+                   "assumed tool (x sideways, y image down, z along the axis)")
 
 
 def main() -> None:
@@ -2703,12 +2769,22 @@ def main() -> None:
     u.add_argument("--no-place", action="store_true", help=argparse.SUPPRESS)
     u.add_argument("--yes", action="store_true",
                    help="no 'Enter = start' question with --send (also without a terminal, e.g. ros2 launch)")
+    k = sub.add_parser("calib", help="after mount: the robot finds where the Dino sits in the hand today "
+                       "(calibration block, focus / edge / level) and with --write saves it")
+    add_scan_options(k)
+    k.set_defaults(out=CAPTURES_DIR / RUN_OUT, soft_level=True, edge_ok_px=None, no_prompt=False)
+    k.add_argument("--write", action="store_true", help="save the new tool into scan_setup.json (backup first)")
+    k.add_argument("--hand", help="after mount --teach: the taught hand pose, from now on the mount pose (also the "
+                   "finger angles of a dry run)")
     m = sub.add_parser("mount", help="once per day: hand torque off, Dino into the jig, Enter, fingers close to the "
                        "calibration pose")
     m.add_argument("--arm", choices=("right", "left"), default="right")
     m.add_argument("--send", action="store_true", help="really switch the torque and move the fingers (default: dry run)")
     m.add_argument("--speed", type=float, default=20.0, help="deg/s of the largest finger joint")
     m.add_argument("--no-torque", action="store_true", help="only close the fingers (jenga-sim has no torque service)")
+    m.add_argument("--teach", action="store_true", help="once per jig / Dino: close ring and little by hand with the "
+                   "torque off, Enter saves the pose the hand then holds (calibrate the Dino with it after)")
+    m.add_argument("--name", help="--teach: name of the saved hand pose (default jig_mount_<date>)")
     u.add_argument("--step", action="store_true", help="Enter before every step of pick and place")
     u.add_argument("--task-arm-speed", type=float, default=10.0, help="deg/s of pick and place")
     u.add_argument("--task-hand-speed", type=float, default=20.0, help="deg/s of the fingers in pick and place")
@@ -2789,6 +2865,9 @@ def main() -> None:
     if args.cmd == "run":
         args.layers = args.layers or RUN_LAYERS
         run_main(args)
+    elif args.cmd == "calib":
+        from jenga_vision.autocalib import calib_main
+        calib_main(args, scan_main, json.loads(SETUP_FILE.read_text()).get("run_faces", {}))
     else:
         scan_main(args)
     if args.dashboard:

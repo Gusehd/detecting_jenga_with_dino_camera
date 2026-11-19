@@ -36,7 +36,8 @@ cd <워크스페이스>/src && git clone https://github.com/Gusehd/detecting_jen
 cd .. && rosdep install --from-paths src --ignore-src -y     # python3-usb, python3-tk, python3-opencv 등
 colcon build --symlink-install --packages-select jenga_vision
 source install/setup.bash
-ros2 run jenga_vision jenga_autoscan mount              # 하루 한 번 Dino 장착 (--send 없으면 dry run)
+ros2 run jenga_vision jenga_autoscan mount              # 데모 날 한 번 Dino 장착 (--send 없으면 dry run)
+ros2 run jenga_vision jenga_autoscan calib              # 그다음 오늘 Dino 위치 보정 (--send --write)
 ros2 run jenga_vision jenga_autoscan run                # 스캔 (--send 없으면 dry run)
 ```
 - **실행 파일 이름:** uv 명령의 `-`를 `_`로 바꾼 이름입니다(`jenga-autoscan` → `jenga_autoscan`, 모두 19개, 목록은 `ros2 pkg executables jenga_vision`). 이름은 `pyproject.toml`의 `[project.scripts]`에서 그대로 읽으므로 새 명령은 거기에만 추가하면 됩니다.
@@ -50,8 +51,14 @@ ros2 run jenga_vision jenga_autoscan run                # 스캔 (--send 없으�
 cd ~/CES2027/JENGA_VISION_DINO
 source tools/robot_env.sh                 # 실기: ROS_DOMAIN_ID=42, USB LAN DDS 설정
 ros2 topic hz /joint_states               # 약 30 Hz 나오면 Ctrl+C
-uv run jenga-autoscan mount --send        # 데모 날 한 번: 오른손 토크 OFF → Dino를 지그에 꽂고 Enter
-                                          # → 토크 ON → 손가락이 보정 자세(jig_scan_pose)로 굽혀짐 → 각도 확인
+# 지그·Dino를 바꿨을 때 한 번: 장착 자세 가르치기 → 그 자세로 자동 보정
+uv run jenga-autoscan mount --teach --send                       # 토크 OFF → Dino 꽂고 약지·새끼를 손으로 오므림 → Enter
+                                                                 # → 토크 ON, 손이 버티는 자세를 jig_mount_<날짜>(+ _cmd)로 저장
+uv run jenga-autoscan calib --send --hand jig_mount_<날짜>        # 팔은 jig_ready_1118에서. 측정만 하고 출력
+uv run jenga-autoscan calib --send --hand jig_mount_<날짜> --write  # 저장: 이 손 자세가 앞으로 장착 자세
+# 데모 날 한 번
+uv run jenga-autoscan mount --send        # 토크 OFF → Dino 꽂고 Enter → 토크 ON → 장착 자세로 굽힘 → 각도 확인
+uv run jenga-autoscan calib --send --write  # 오늘 꽂힌 Dino 위치를 로봇이 재서 보정 갱신 (+x 8층 가운데, 1~2분)
 uv run jenga-autoscan hand                # 약지·새끼가 보정 때와 같은지 (읽기만)
 uv run jenga-autoscan run --send [--record]
 # 옵션 없는 run = --preset=jig-full, 집기·꽂기 없음, --out captures/jig1118b (예전 긴 명령과 같은 설정).

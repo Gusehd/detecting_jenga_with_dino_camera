@@ -1,6 +1,6 @@
 """Offline FK / IK for the xArm7 arms, straight from the URDF (no ROS, no MoveIt).
 
-The URDF is the teammate's dual_robot.urdf (jenga_world/jenga_bringup/...).
+The URDF is the teammate's dual_robot.urdf (where: paths.find_urdf).
 Only the chain world -> xarm_<arm>_joint1..7 -> <tip> is used; fixed joints are
 folded in. IK is damped least squares with joint limits, seeded (stays near
 the seed, so it keeps the arm's configuration), good for planning poses that
@@ -16,7 +16,9 @@ from pathlib import Path
 
 import numpy as np
 
-URDF = Path(__file__).resolve().parents[2] / "jenga_world/jenga_bringup/bi_manipulator_config/urdf/dual_robot.urdf"
+from jenga_vision.paths import find_urdf
+
+URDF = find_urdf()
 
 
 def rpy_matrix(r: float, p: float, y: float) -> np.ndarray:
@@ -73,6 +75,9 @@ RPY_OVERRIDE = {"right_qc_to_right_hand": (0.0, 0.0, 1.5708), "left_qc_to_left_h
 
 def load_joints(path: Path = URDF) -> dict[str, Joint]:
     """Joints by child link name."""
+    if not Path(path).exists():
+        raise FileNotFoundError(f"no robot URDF at {path}: set JENGA_URDF, or source a workspace with "
+                                "bi_manipulator_config (share/bi_manipulator_config/urdf/dual_robot.urdf)")
     joints = {}
     for j in ET.parse(path).getroot().iter("joint"):
         if j.find("parent") is None:

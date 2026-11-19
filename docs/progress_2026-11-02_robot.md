@@ -21,6 +21,13 @@ uv run jenga-task pick_dino --send --step    # 같은 자세, 느린 확인용 (
 - `jenga-autoscan run`은 이제 항상 `pick_dino_quick`, `place_dino_quick`을 쓴다. 옛 지그 자세를 쓰던 `pick_dino_fast`와 시험용 작업은 지웠다(백업 `config/tasks.json.bak_20261109_trials`, `config/arm_poses.json.bak_20261109_*`).
 - 옛 자세 `final_grasp_1`, `_1_1`, `_1_2`, `_1109`(+x 이동 전)는 파일에 남아 있지만 어떤 작업도 쓰지 않는다.
 
+## 2026-11-19: ROS 2 패키지 `jenga_vision` (동료 요청, Jazzy에서 빌드)
+- `ros2/jenga_vision/`(ament_python): `package.xml`(format 3, 의존성 전부 rosdep 키, Jazzy/Noble에서 해석 확인), `setup.py`, `setup.cfg`, `resource/`. 코드·config·테스트는 `../../src/jenga_vision`, `../../config`, `../../tests`로 심볼릭 링크. 루트에 두지 않은 이유: setuptools 61 이상(Jazzy 68.1)은 루트 `pyproject.toml`의 `[project]`로 `setup.py` 값을 덮어씀(이름 `jenga-vision`, 스크립트 `jenga-autoscan`, 직접 확인).
+- 실행 파일은 `pyproject.toml` 스크립트의 `-` → `_` (`ros2 run jenga_vision jenga_autoscan`). 노드·토픽 이름은 원래 모두 소문자였음.
+- `Path("config/...")`, `Path("captures")`를 `jenga_vision.paths`(CONFIG_DIR, CAPTURES_DIR, find_urdf)로 바꿈. uv에서 저장소 안에서 실행하면 경로는 전과 같음. URDF는 저장소의 `jenga_world` 사본이 없으면 `bi_manipulator_config` share를 씀.
+- 확인: Humble colcon build(복사·symlink) + `colcon test` 94개 + 도메인 77 `jenga_sim`; Python 3.12 + setuptools 68.1 + numpy 1.26.4 + OpenCV 4.6에서 설치·테스트 94개. Jazzy 컨테이너 실빌드는 동료 쪽에서.
+- 따로 발견(고치지 않음): `jenga-focus`(focus_probe)는 v1(fd81ff0) 이후 `autoscan.DISCARD_FRAMES`가 없어져 import에서 죽음.
+
 ## 2026-11-18 하루 정리: Dino 손 지그 실기 (다음 세션은 여기부터)
 | 모드 | 명령 | 새 탑 두 면 | 잔차 |
 |---|---|---|---|

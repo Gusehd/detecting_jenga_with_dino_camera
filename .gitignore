@@ -9,3 +9,7 @@ wheels/
 # Virtual environments
 .venv
 captures/
+
+# colcon (ROS 2 build of ros2/jenga_vision)
+install/
+log/

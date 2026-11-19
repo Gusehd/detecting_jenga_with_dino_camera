@@ -30,8 +30,9 @@ import math
 import signal
 import threading
 import tkinter as tk
-from pathlib import Path
 from tkinter import ttk
+
+from jenga_vision.paths import CONFIG_DIR
 
 TWO_PI = 2 * math.pi
 # URDF limits (rad) of xarm_<arm>_joint1..7, read from /robot_description 2026-10-28.
@@ -41,7 +42,7 @@ MIN_MOVE_TIME = 2.0  # s
 MIN_JOG_TIME = 1.0  # s
 JOG_SPEED_MM = 10.0  # hand speed limits of a jog (mm/s, deg/s)
 JOG_SPEED_DEG = 10.0
-POSES_FILE = Path("config/arm_poses.json")
+POSES_FILE = CONFIG_DIR / "arm_poses.json"
 
 
 def dino_tool(arm: str):
@@ -470,7 +471,7 @@ def main() -> None:
     try:
         ros = ArmNode(args.arm, args.send)
     except ImportError:
-        raise SystemExit("rclpy not found: run `source /opt/ros/humble/setup.bash` first")
+        raise SystemExit("rclpy not found: source ROS 2 first (/opt/ros/humble or /opt/ros/jazzy setup.bash)")
     root = tk.Tk()
     ArmApp(root, ros, args)
     signal.signal(signal.SIGINT, lambda *_: root.destroy())  # Ctrl+C closes the window

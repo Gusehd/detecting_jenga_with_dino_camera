@@ -1,6 +1,6 @@
 """Allegro Hand V6 slider GUI: 20 joints, named poses, smooth moves.
 
-Needs ROS 2 Humble sourced (source /opt/ros/humble/setup.bash) and the right
+Needs ROS 2 sourced (source /opt/ros/humble/setup.bash, or jazzy) and the right
 ROS_DOMAIN_ID. The robot side is real hardware, so by default nothing is
 published (dry run): the GUI only shows the command it would send. Pass --send
 to really publish.
@@ -37,8 +37,9 @@ import signal
 import threading
 import time
 import tkinter as tk
-from pathlib import Path
 from tkinter import ttk
+
+from jenga_vision.paths import CONFIG_DIR
 
 FINGERS = ("thumb", "index", "middle", "ring", "little")
 # URDF limits (rad), same for both hands, read from /robot_description 2026-10-28.
@@ -54,8 +55,8 @@ for _f in range(1, 5):
     LIMITS[(_f, 3)] = (-0.1745329, 1.3962634)
 JOINTS = [(f, j) for f in range(5) for j in range(4)]
 RATE_HZ = 50
-POSES_FILE = Path("config/hand_poses.json")
-SEQUENCES_FILE = Path("config/hand_sequences.json")
+POSES_FILE = CONFIG_DIR / "hand_poses.json"
+SEQUENCES_FILE = CONFIG_DIR / "hand_sequences.json"
 STEP_PAUSE = 0.3  # s between sequence steps
 
 
@@ -334,7 +335,7 @@ def main() -> None:
     try:
         ros = HandNode(args.hand, args.send, args.topic)
     except ImportError:
-        raise SystemExit("rclpy not found: run `source /opt/ros/humble/setup.bash` first")
+        raise SystemExit("rclpy not found: source ROS 2 first (/opt/ros/humble or /opt/ros/jazzy setup.bash)")
     root = tk.Tk()
     SliderApp(root, ros, args)
     signal.signal(signal.SIGINT, lambda *_: root.destroy())  # Ctrl+C closes the window

@@ -11,6 +11,7 @@ Read `README.md` first ("통합할 때 알아야 할 점"), then the top section
 ## Environment
 - Python only through the uv project: `~/.local/bin/uv run ...`, dependencies with `uv add`. No system pip. ROS 2 Humble comes from `source /opt/ros/humble/setup.bash` (or `source tools/robot_env.sh` for the real robot).
 - The package is meant to be ported into the robot system as a module: keep the `src/jenga_vision` library layout and CLI entry points in `pyproject.toml`.
+- `ros2/jenga_vision/` is the ROS 2 (ament_python, Humble and Jazzy) build of the same code through symlinks; its `setup.py` reads the scripts and version from `pyproject.toml` (`-` becomes `_`). Don't move it to the repo root. Paths to `config/`, `captures/` and the URDF go through `jenga_vision.paths`, never `Path("config/...")`.
 
 ## Contract with the pulling code
 - Output: `captures/order_*.json`, copied to `$JENGA_STATE_DIR/jenga_pick_candidates.json` when that variable is set. Format and meaning (block names `jenga_LXX_SY`, L00 = bottom, S1 = middle; list order = pull order; 빼안빼 pairs) are in the README. Changing the format breaks `jenga_game`: agree on it with both owners first.

@@ -38,6 +38,7 @@ import numpy as np
 from jenga_vision.camera import DinoCamera, sharpness
 from jenga_vision.led import set_led
 from jenga_vision.long_edge import measure, measure_single
+from jenga_vision.paths import CAPTURES_DIR
 
 LIGHTS = ("front", "off", "back", "both")
 LED_ON_LIGHTS = ("front", "both")
@@ -77,7 +78,7 @@ def diff_view(frame: np.ndarray, ref: np.ndarray, gain: float = 4.0) -> np.ndarr
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     args = parser.parse_args()
 
     session = args.out / time.strftime("session_%Y%m%d_%H%M%S")

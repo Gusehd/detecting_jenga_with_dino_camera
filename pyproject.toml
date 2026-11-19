@@ -34,3 +34,7 @@ jenga-sim = "jenga_vision.sim:main"
 jenga-calib = "jenga_vision.calib:main"
 jenga-autoscan = "jenga_vision.autoscan:main"
 jenga-focus = "jenga_vision.focus_probe:main"
+
+[tool.pytest.ini_options]
+# ros2/jenga_vision/test is a symlink to tests/: collect it once
+norecursedirs = [".*", "build", "dist", "*.egg", "ros2"]

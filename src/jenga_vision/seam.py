@@ -47,6 +47,7 @@ import numpy as np
 
 from jenga_vision.camera import DinoCamera
 from jenga_vision.long_edge import CORE_WINDOW, DARK_FRACTION, _smooth
+from jenga_vision.paths import CAPTURES_DIR
 
 FRAMES_PER_SHOT = 3
 STRIPS = 16  # per side of the seam
@@ -208,7 +209,7 @@ def put_at(img, text, org, color=WHITE, scale=0.55):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     parser.add_argument("--first", type=int, default=2, help="lowest layer to test")
     parser.add_argument("--last", type=int, default=16, help="highest layer to test (needs a layer above it)")
     parser.add_argument("--mode", choices=("layer", "block"), default="layer",

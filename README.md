@@ -27,6 +27,22 @@ sudo cp udev/99-dinolite.rules /etc/udev/rules.d/ && sudo udevadm control --relo
 ```
 ROS 2(Humble) 기능은 `source /opt/ros/humble/setup.bash`를 한 터미널에서 `uv run`으로 씁니다(rclpy는 시스템 ROS에서 옵니다).
 
+## ROS 2 패키지로 빌드 (Humble / Jazzy)
+
+`ros2/jenga_vision/`가 ament_python 패키지 `jenga_vision`입니다. 그 안의 `jenga_vision/`, `config/`, `test/`는 이 저장소의 `src/jenga_vision`, `config`, `tests`를 가리키는 심볼릭 링크라서, uv 실행과 colcon 빌드가 같은 코드를 씁니다. 패키지를 저장소 루트가 아닌 하위 폴더에 둔 이유가 있습니다. Jazzy의 setuptools(61 이상)는 루트 `pyproject.toml`의 이름·버전·스크립트로 `setup.py`를 덮어씁니다.
+
+```bash
+cd <워크스페이스>/src && git clone https://github.com/Gusehd/detecting_jenga_with_dino_camera.git jenga_vision_dino
+cd .. && rosdep install --from-paths src --ignore-src -y     # python3-usb, python3-tk, python3-opencv 등
+colcon build --symlink-install --packages-select jenga_vision
+source install/setup.bash
+ros2 run jenga_vision jenga_autoscan run --preset=jig-full --no-pick --no-place     # --send 없으면 dry run
+```
+- **실행 파일 이름:** uv 명령의 `-`를 `_`로 바꾼 이름입니다(`jenga-autoscan` → `jenga_autoscan`, 모두 19개, 목록은 `ros2 pkg executables jenga_vision`). 이름은 `pyproject.toml`의 `[project.scripts]`에서 그대로 읽으므로 새 명령은 거기에만 추가하면 됩니다.
+- **config·captures 위치** (`src/jenga_vision/paths.py`): `$JENGA_VISION_DIR` → 코드가 있는 저장소(uv, `--symlink-install`) → 현재 폴더 → 설치된 `share/jenga_vision`. `--symlink-install` 없이 빌드하면 config는 install에 복사본으로 들어가고, 거기 저장한 자세·보정은 다시 빌드할 때 사라집니다. 이때는 `export JENGA_VISION_DIR=<저장소 경로>`를 쓰세요. `--out`처럼 직접 준 상대 경로는 지금 폴더 기준입니다.
+- **URDF** (팔 기구학용): `$JENGA_URDF` → 저장소의 `jenga_world/.../dual_robot.urdf`(이 비전 PC에만 있음) → 소싱한 워크스페이스의 `bi_manipulator_config` share. 10-29 사본의 md5는 `3f2710f9ccc4ac894c2d299239102970`입니다. 동료 쪽 최신 URDF와 다르면 실기 전에 확인하세요.
+- 확인한 것(2026-11-19): Humble에서 `colcon build`(복사, `--symlink-install` 둘 다), `colcon test` 94개 통과, 도메인 77에서 `ros2 run jenga_vision jenga_sim` 실행. Jazzy는 이 PC에 없어서 같은 라이브러리 버전(Python 3.12, setuptools 68.1, numpy 1.26.4, OpenCV 4.6)으로 `setup.py` 설치와 테스트 94개를 확인했습니다. Jazzy 컨테이너에서 실제 colcon 빌드는 아직 안 해 봤습니다.
+
 ## 실행
 
 ```bash
@@ -98,6 +114,8 @@ uv run jenga-autoscan run --send --preset=jig-full --no-pick --no-place --out ca
 | `src/jenga_vision/task.py` | `jenga-task`: `config/tasks.json`의 팔·손 단계 실행 (집기·꽂기) |
 | `src/jenga_vision/sim.py` | `jenga-sim`: 가짜 컨트롤러 + RViz (도메인 77) |
 | `src/jenga_vision/dashboard.py`, `dashboard.html` | 데모 대시보드 (Dino 영상 + 픽셀 젠가탑) |
+| `src/jenga_vision/paths.py` | config/, captures/, URDF 위치 (uv와 ROS 2 패키지 공통) |
+| `ros2/jenga_vision/` | ROS 2 패키지 (`package.xml`, `setup.py`, 코드·config·테스트는 심볼릭 링크) |
 | `src/jenga_vision/camera.py`, `led.py` | Dino 카메라 열기, LED 끄기 (raw USB) |
 | `tools/` | 오프라인 분석 스크립트, `robot_env.sh` |
 | `docs/` | 날짜별 진행 기록(`progress_*.md`)과 공유 페이지(`share_*/`) |

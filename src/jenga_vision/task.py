@@ -46,7 +46,9 @@ import numpy as np
 
 from jenga_vision import arm_route, arm_slider, hand_slider
 
-TASKS_FILE = Path("config/tasks.json")
+from jenga_vision.paths import CONFIG_DIR
+
+TASKS_FILE = CONFIG_DIR / "tasks.json"
 STEP_KINDS = ("arm", "hand", "hand_seq", "route")
 STATE_WAIT_S = 20.0  # first /joint_states with --send: robot PC on Jazzy, discovery takes seconds (2026-11-09)
 LINE_DT_S = 0.05  # time between the points of a straight move
@@ -346,7 +348,7 @@ def run_task(name: str, args: argparse.Namespace) -> bool:
     try:
         runner = Runner(expand(tasks[name], tasks), args)
     except ImportError:
-        raise SystemExit("rclpy not found: run `source /opt/ros/humble/setup.bash` first")
+        raise SystemExit("rclpy not found: source ROS 2 first (/opt/ros/humble or /opt/ros/jazzy setup.bash)")
     try:
         return runner.run()
     except KeyboardInterrupt:

@@ -27,6 +27,7 @@ import numpy as np
 
 from jenga_vision.camera import DinoCamera
 from jenga_vision.long_edge import EASY_TOP_PX, measure_single
+from jenga_vision.paths import CAPTURES_DIR
 
 SEGMENTS = ("left", "center", "right")
 FRAMES_PER_SHOT = 3
@@ -46,7 +47,7 @@ def predict(px: float) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     args = parser.parse_args()
 
     session = args.out / time.strftime("live_edge_%Y%m%d_%H%M%S")

@@ -29,7 +29,6 @@ import os
 import subprocess
 import threading
 import time
-from pathlib import Path
 
 import numpy as np
 
@@ -37,9 +36,10 @@ from jenga_vision import hand_slider
 from jenga_vision.arm_slider import POSES_FILE, joint_names
 from jenga_vision.cartesian import matrix_to_quat, quat_to_matrix
 from jenga_vision.kinematics import URDF, Chain, axis_angle, load_joints, transform
+from jenga_vision.paths import CONFIG_DIR
 from jenga_vision.scan_plan import FACE_NORMALS, SETUP_FILE, Tower, arm_tool
 
-RVIZ_FILE = Path("config/sim.rviz")
+RVIZ_FILE = CONFIG_DIR / "sim.rviz"
 ROBOT_DOMAINS = ("0", "42")  # real xArm7 + Allegro (42 since 2026-11-09): the fake controllers would answer there
 ARMS = ("right", "left")
 START_POSES = {"right": "home", "left": "auto_home"}

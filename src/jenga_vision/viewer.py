@@ -21,6 +21,7 @@ import numpy as np
 from jenga_vision.camera import DinoCamera, focus_value
 from jenga_vision.ends import CYAN, YELLOW, measure_end
 from jenga_vision.led import set_led
+from jenga_vision.paths import CAPTURES_DIR, CONFIG_DIR
 
 
 def edge_tilt_deg(frame) -> float | None:
@@ -65,7 +66,7 @@ def draw_ends(view, frame) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     parser.add_argument("--ends", action="store_true", help="start with the end-face overlay on")
     args = parser.parse_args()
 
@@ -74,7 +75,7 @@ def main() -> None:
     led_on = False
     prev = time.time()
     try:
-        cal = json.loads(Path("config/scan_setup.json").read_text())["dino"]["calibration"]["right"]
+        cal = json.loads(CONFIG_DIR / "scan_setup.json".read_text())["dino"]["calibration"]["right"]
         ref_tilt = cal.get("image_tilt_deg")
     except (OSError, KeyError, ValueError):
         ref_tilt = None

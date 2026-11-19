@@ -88,6 +88,7 @@ from jenga_vision.camera import focus_value
 from jenga_vision.dashboard import DEFAULT_PORT, Dashboard, NoDashboard, replay
 from jenga_vision.focus_search import find_peak
 from jenga_vision.kinematics import Chain
+from jenga_vision.paths import CAPTURES_DIR
 from jenga_vision.scan_plan import (FACE_NORMALS, SETUP_FILE, Tower, arm_tool, away_from_limits, plan_face_stable,
                                     shot_pose, view_yaw)
 
@@ -2638,7 +2639,7 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--mode", choices=ends.METHODS, default=ends.METHODS[0])
     p.add_argument("--device", type=int, default=0)
     p.add_argument("--window", action="store_true", help="show the camera while scanning")
-    p.add_argument("--out", type=Path, default=Path("captures"))
+    p.add_argument("--out", type=Path, default=CAPTURES_DIR)
     p.add_argument("--fake-depth-mm", type=float, default=-3.0, help="fake camera: true faces this much deeper")
     p.add_argument("--fake-lean-mm", type=float, default=1.5, help="fake camera: + this per 10 layers")
     p.add_argument("--fake-drop-mm", type=float, default=0.6, help="fake camera: gaps this much lower")
@@ -2655,7 +2656,7 @@ def main() -> None:
     r = sub.add_parser("rank", help="ranking.json from one or more scan sessions")
     r.add_argument("sessions", nargs="+", type=Path)
     r.add_argument("--mode", choices=ends.METHODS, default=ends.METHODS[0])
-    r.add_argument("--out", type=Path, default=Path("captures/ranking.json"))
+    r.add_argument("--out", type=Path, default=CAPTURES_DIR / "ranking.json")
     r.add_argument("--candidates", type=Path, help="teammate's candidates file, e.g. "
                    "$JENGA_STATE_DIR/jenga_pick_candidates.json (default: next to --out)")
     u = sub.add_parser("run", help="pick the Dino, scan -y and +x, write the pull order, place the Dino")

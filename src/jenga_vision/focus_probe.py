@@ -49,6 +49,7 @@ from jenga_vision import ends
 from jenga_vision.autoscan import (DISCARD_FRAMES, FakeCamera, Mover, RealCamera, ScanError, edge_row, face_shots)
 from jenga_vision.camera import focus_value
 from jenga_vision.kinematics import Chain, transform
+from jenga_vision.paths import CAPTURES_DIR
 from jenga_vision.scan_plan import SETUP_FILE, Tower, arm_tool, plan_face_stable
 
 FRAMES = 5  # frames per measurement: tells one bad frame from a whole bad measurement
@@ -294,7 +295,7 @@ def main() -> None:
     parser.add_argument("--end", default="home", help="sweep: saved pose to go to at the end")
     parser.add_argument("--fake-peak-mm", type=float, default=2.0, help="fake camera: sharpest this far out")
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     args = parser.parse_args()
     if not 0 < args.mm <= MAX_SWEEP_MM:
         raise SystemExit(f"--mm: 0..{MAX_SWEEP_MM:.0f}")

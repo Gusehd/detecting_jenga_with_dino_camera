@@ -43,6 +43,7 @@ import numpy as np
 
 from jenga_vision.camera import DinoCamera
 from jenga_vision.long_edge import EASY_TOP_PX, measure_single
+from jenga_vision.paths import CAPTURES_DIR
 
 SEGMENTS = ("left", "center", "right")
 FRAMES_PER_SHOT = 3
@@ -119,7 +120,7 @@ def summary(scan: Scan) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     parser.add_argument("--middle", action="store_true", help="scan P2 through its end faces")
     args = parser.parse_args()
 

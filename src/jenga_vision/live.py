@@ -27,6 +27,7 @@ import numpy as np
 
 from jenga_vision.camera import DinoCamera
 from jenga_vision.gap import EASY_THRESHOLD, analyze, is_easy
+from jenga_vision.paths import CAPTURES_DIR
 
 BURST = 5
 FIELDS = ["layer", "position", "score_a", "score_b", "score", "pred", "actual", "correct", "timestamp"]
@@ -45,7 +46,7 @@ def put(img, text, y, color=WHITE, scale=0.6):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     args = parser.parse_args()
 
     session = args.out / time.strftime("live_%Y%m%d_%H%M%S")

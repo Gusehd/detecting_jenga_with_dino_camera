@@ -9,8 +9,9 @@ import cv2
 import numpy as np
 
 from jenga_vision.led import set_led
+from jenga_vision.paths import CONFIG_DIR
 
-SETUP_FILE = Path("config/scan_setup.json")  # the same file as scan_plan.SETUP_FILE
+SETUP_FILE = CONFIG_DIR / "scan_setup.json"  # the same file as scan_plan.SETUP_FILE
 
 
 def mounted_upside_down() -> bool:

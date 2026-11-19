@@ -32,8 +32,9 @@ import numpy as np
 from jenga_vision.arm_route import ROUTES_FILE, load_all
 from jenga_vision.arm_slider import POSES_FILE
 from jenga_vision.kinematics import Chain, axis_angle, transform
+from jenga_vision.paths import CAPTURES_DIR, CONFIG_DIR
 
-SETUP_FILE = Path("config/scan_setup.json")
+SETUP_FILE = CONFIG_DIR / "scan_setup.json"
 FACE_NORMALS = {"+x": (1, 0), "-x": (-1, 0), "+y": (0, 1), "-y": (0, -1)}
 ELBOW_MIN = math.radians(10)  # teammate's moveit_arm.py: joint4 >= 10 deg (xArm C22)
 J1_MAX = math.radians(120)
@@ -347,7 +348,7 @@ def mirrored_left_poses(right_poses: dict, jig_y: float) -> dict[str, list[float
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--write", action="store_true", help="save the routes to config/arm_routes.json")
-    parser.add_argument("--png", type=Path, default=Path("captures/scan_plan.png"))
+    parser.add_argument("--png", type=Path, default=CAPTURES_DIR / "scan_plan.png")
     parser.add_argument("--standoff", type=float, default=None,
                         help="extra distance (m) out from the face, overrides scan_setup.json (draft: 0.04)")
     parser.add_argument("--only", nargs=2, metavar=("ARM", "FACE"), help="plan one face only, e.g. right my (my = -y, px = +x)")

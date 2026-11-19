@@ -39,6 +39,7 @@ import numpy as np
 
 from jenga_vision.camera import DinoCamera, GeminiCamera, find_gemini_color
 from jenga_vision.long_edge import measure_single
+from jenga_vision.paths import CAPTURES_DIR
 from jenga_vision.pick import LayerPick, layer_ranking
 
 FRAMES_PER_SHOT = 3
@@ -116,7 +117,7 @@ def main() -> None:
                         help="gemini: Orbbec Gemini 305 color stream, center crop zoomed (no LED control)")
     parser.add_argument("--roi", type=float, default=0.25, help="gemini: central fraction of the frame used")
     parser.add_argument("--zoom", type=int, default=2, help="gemini: nearest-neighbor upscale of the crop")
-    parser.add_argument("--out", type=Path, default=Path("captures"))
+    parser.add_argument("--out", type=Path, default=CAPTURES_DIR)
     parser.add_argument("--first", type=int, default=2, help="lowest layer to scan (1 sits in the jig)")
     parser.add_argument("--last", type=int, default=16, help="highest layer to scan (top layer excluded)")
     parser.add_argument("--sure", type=float, default=16.0, help="layer outer px for both outers SURE")

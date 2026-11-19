@@ -35,11 +35,11 @@ import argparse
 import json
 import math
 import time
-from pathlib import Path
 
 from jenga_vision.arm_slider import MIN_MOVE_TIME, ArmNode, clamp
+from jenga_vision.paths import CONFIG_DIR
 
-ROUTES_FILE = Path("config/arm_routes.json")
+ROUTES_FILE = CONFIG_DIR / "arm_routes.json"
 
 
 def load_all() -> dict:
@@ -241,7 +241,7 @@ def main() -> None:
     try:
         ros = ArmNode(args.arm, args.cmd == "play" and args.send, node_name=f"jenga_route_{args.cmd}")
     except ImportError:
-        raise SystemExit("rclpy not found: run `source /opt/ros/humble/setup.bash` first")
+        raise SystemExit("rclpy not found: source ROS 2 first (/opt/ros/humble or /opt/ros/jazzy setup.bash)")
     try:
         (teach if args.cmd == "teach" else play)(ros, args)
     except (KeyboardInterrupt, EOFError):

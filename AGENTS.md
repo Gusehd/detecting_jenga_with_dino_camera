@@ -14,7 +14,7 @@ Read `README.md` first ("통합할 때 알아야 할 점"), then the top section
 - `ros2/jenga_vision/` is the ROS 2 (ament_python, Humble and Jazzy) build of the same code through symlinks; its `setup.py` reads the scripts and version from `pyproject.toml` (`-` becomes `_`). Don't move it to the repo root. Paths to `config/`, `captures/` and the URDF go through `jenga_vision.paths`, never `Path("config/...")`.
 
 ## Contract with the pulling code
-- Output: `captures/order_*.json`, copied to `$JENGA_STATE_DIR/jenga_pick_candidates.json` when that variable is set. Format and meaning (block names `jenga_LXX_SY`, L00 = bottom, S1 = middle; list order = pull order; 빼안빼 pairs) are in the README. Changing the format breaks `jenga_game`: agree on it with both owners first.
+- Output: `captures/order_*.json`, copied to `game_block.json` (`jenga_ws/src/ros_pkgs/game_block.json`, see `paths.game_block_file`; this is what `jenga_game` reads first) and to `$JENGA_STATE_DIR/jenga_pick_candidates.json` when that variable is set. Format and meaning (block names `jenga_LXX_SY`, L00 = bottom, S1 = middle; list order = pull order; 빼안빼 pairs) are in the README. Changing the format breaks `jenga_game`: agree on it with both owners first.
 
 ## Things that look wrong but are deliberate
 - `config/arm_poses.json` poses were taught by hand on the robot. Don't regenerate or "clean up" them. Back up before any change.

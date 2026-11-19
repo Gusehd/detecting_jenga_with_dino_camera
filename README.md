@@ -80,7 +80,8 @@ uv run jenga-autoscan run --send [--record]
 ## 통합할 때 알아야 할 점
 
 ### 1. 출력 계약 (뽑기 코드가 읽는 파일)
-- 스캔이 끝나면 `captures/order_<날짜_시각>.json`을 씁니다. 환경 변수 `JENGA_STATE_DIR`가 있으면 `$JENGA_STATE_DIR/jenga_pick_candidates.json`으로도 복사합니다. 이 경로가 `jenga_game`의 기본 `--candidates`입니다.
+- 스캔이 끝나면 `captures/order_<날짜_시각>.json`을 씁니다. 같은 내용을 `game_block.json`으로도 복사합니다 (로봇 PC: `jenga_ws/src/ros_pkgs/game_block.json`, 환경 변수 `JENGA_GAME_BLOCK`로 바꿈; 체크아웃 위에 `ros_pkgs` 폴더가 없으면 건너뜀). 이 파일이 `jenga_game` / `jenga_pick` / `jenga_stack`의 기본 `--candidates`이고 (없으면 `jenga_perception/config/pick_candidates.json`), 빌드 없이 다음 로봇 턴에 반영됩니다.
+- 환경 변수 `JENGA_STATE_DIR`가 있으면 `$JENGA_STATE_DIR/jenga_pick_candidates.json`으로도 복사합니다 (예전 경로, 지금은 `jenga_game`이 기본으로 읽지 않음).
 - 형식:
   ```json
   {"version": 1, "source": "camera", "stamp": 1794287917.47,

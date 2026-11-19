@@ -116,6 +116,10 @@ RUN_LAYERS = [2, 14]  # floors 3..15: not floors 1, 2 nor the top two (user, 202
 # --preset=none for the old defaults, --pick / --place for the 11-09 quick pick / place
 RUN_PRESET = "jig-full"
 HOME_SPEED = 20.0  # deg/s of the last move of run to run_home
+# The teammate's home for the right arm, where run ends (2026-11-19): the left arm at their home on the robot
+# (/joint_states xarm_left_joint1..7 = -8.0 1.0 24.0 44.0 -74.0 93.0 -43.3 deg), mirrored (MIRROR_SIGNS).
+# From jig_ready_1118 the move is up to 154 deg on joint 7 and 73 on joint 5.
+TEAMMATE_HOME = {"right": [0.139598, 0.017453, -0.41889, 0.767863, 1.291499, 1.623174, 0.755739]}
 RUN_OUT = "jig1118b"  # in captures/: the plan cache and per-face state of the 11-18 jig calibration
 # Per face, as tested on the real robot 2026-11-03. -y: straight from home, entering at the top layer
 # (cali_way_1 made the cables hit the tower; entering low passes 116 mm from the axis instead of 157).
@@ -2519,17 +2523,19 @@ def run_main(args) -> None:
     if not args.no_place and not timed_task("place_dino"):
         print("stopped in place_dino: the pull order above is still valid")
         return report()
-    home = None if args.no_home else (args.home or json.loads(SETUP_FILE.read_text()).get("run_home"))
-    if home:
-        go_home(args, home)
+    if not args.no_home:
+        name = args.home or json.loads(SETUP_FILE.read_text()).get("run_home")
+        if name:
+            go_home(args, name, json.loads(POSES_FILE.read_text())[args.arm][name])
+        elif args.arm in TEAMMATE_HOME:
+            go_home(args, "the teammate's home", TEAMMATE_HOME[args.arm])
     args.dash.event(stage="done", ended=time.time())
     report()
 
 
-def go_home(args, name: str) -> None:
-    """run: the last move, a joint move from the scans' end pose (jig_ready_1118, away from the tower) to
-    `name` of arm_poses.json (the teammate's home: jenga_autoscan home-pose)."""
-    target = json.loads(POSES_FILE.read_text())[args.arm][name]
+def go_home(args, name: str, target: list[float]) -> None:
+    """run: the last move, a joint move from the scans' end pose (jig_ready_1118, away from the tower) to the
+    teammate's home (TEAMMATE_HOME, or a saved pose: --home, run_home of scan_setup.json)."""
     if not args.send:
         print(f"\n(virtual) the arm would go to '{name}'")
         return
@@ -2961,8 +2967,8 @@ def main() -> None:
     u.add_argument("--place", dest="no_place", action="store_false", help="place the Dino at the end (place_dino_quick)")
     u.add_argument("--no-pick", action="store_true", help=argparse.SUPPRESS)  # the default now; kept for old launches
     u.add_argument("--no-place", action="store_true", help=argparse.SUPPRESS)
-    u.add_argument("--home", help="saved arm pose to go to at the end (default: run_home of scan_setup.json, "
-                   "set by home-pose)")
+    u.add_argument("--home", help="saved arm pose to go to at the end (default: run_home of scan_setup.json if set, "
+                   "else TEAMMATE_HOME)")
     u.add_argument("--no-home", action="store_true", help="stay at the scans' end pose (jig_ready_1118)")
     u.add_argument("--yes", action="store_true",
                    help="no 'Enter = start' question with --send (also without a terminal, e.g. ros2 launch)")

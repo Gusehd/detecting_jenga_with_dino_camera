@@ -35,11 +35,29 @@ def test_delta_puts_the_focus_on_the_model_edge():
     assert np.allclose(really[:3, :3], shot.pose(0, 0)[:3, :3])
 
 
-def test_delta_roll_only():
+def test_delta_is_a_shift_the_turn_goes_to_the_image():
     shot = Shot(7, 1, "middle", np.array([0.5, 0.0, 0.2]), np.array([1.0, 0, 0]))
-    f = autocalib.Found(0.0, 0.0, 0.0, turn_deg=4.0, edge_err_m=0.0, tilt_deg=1.0)
-    _, total, roll, tilt = autocalib.change(np.eye(4), autocalib.delta(shot, f, roll_sign=-1))
-    assert math.isclose(roll, -5.0, abs_tol=1e-9) and math.isclose(total, 5.0, abs_tol=1e-6) and tilt < 1e-6
+    f = autocalib.Found(0.0, 0.0, 0.0, turn_deg=70.0, edge_err_m=0.0, tilt_deg=1.0, side_m=0.03)
+    d = autocalib.delta(shot, f)
+    assert np.allclose(d[:3, :3], np.eye(3))
+    # commanded 30 mm right of the model aim to see the middle block: the point in focus is 30 mm left
+    assert np.allclose(d[:3, 3], [-0.03, 0.0, 0.0], atol=1e-9)
+
+
+def test_run_around():
+    step = autocalib.SIDE_STEP_M
+    on = [k * step for k in range(-20, -15)] + [k * step for k in range(-8, 12)]
+    lo, hi = autocalib.run_around(on)
+    assert math.isclose(lo, -8 * step) and math.isclose(hi, 11 * step)
+    assert autocalib.run_around([0.0, step]) is None
+
+
+def test_clear_peak():
+    flat = [(k * 0.0015, 1.0) for k in range(20)]
+    assert not autocalib.clear_peak(flat)
+    peak = [(k * 0.0015, 1.0 + 50 * (k == 10)) for k in range(20)]
+    assert autocalib.clear_peak(peak)
+    assert not autocalib.clear_peak(peak[:11])  # best at the end: not past the peak yet
 
 
 def test_good():
@@ -56,10 +74,11 @@ def test_write(tmp_path, monkeypatch):
     out.mkdir()
     (out / ".rigid.json").write_text("{}")
     tool = TOOL @ autocalib.transform(np.eye(3), [0.0, 0.001, -0.002])
-    res = {"q": [0.1] * 7, "mm_per_px": 2.6e-5}
+    res = {"q": [0.1] * 7, "mm_per_px": 2.6e-5, "turn_deg": 70.0}
     autocalib.write(Namespace(arm="right", hand=None, out=out), json.loads(setup_file.read_text()), tool, HAND_Q, res)
     saved = json.loads(setup_file.read_text())["dino"]
     assert np.allclose(saved["tool_hand"]["right"], tool, atol=1e-6)
+    assert saved["image_turn_deg"] == 70.0
     cal = saved["calibration"]["right"]
     assert cal["hand_pose"] == "jig_scan_pose" and cal["previous"]["pose"] == "px_col_mid"
     assert cal["face"] == "+x" and cal["layer"] == 7 and cal["slot"] == 1

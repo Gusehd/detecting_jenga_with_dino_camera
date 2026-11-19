@@ -182,6 +182,7 @@ ROLL_TEST_DEGS = [0.0, -3.0, 3.0, -5.0, 5.0, -10.0, 10.0, 0.0]
 REPEAT_FILE = "repeat_test.csv"  # in --out: one row per block per --repeat-test run, kept across runs
 DEFOCUS_TEST_MM = [0.0, -0.5, 0.5, -1.0, 1.0, -1.5, 1.5, -2.0, 2.0, 0.0]  # + = deeper (closer to the tower)
 LEVEL_DEG, MAX_ROLL_DEG = 0.7, 20.0
+TURN_STEP_DEG = 10  # calib: image turns tried for the edge (any Dino turn in the jig)
 # --blur-test: passes without stopping, to see how much moving changes the gap px (2026-11-10)
 BLUR_MAX_MM_S = 60.0  # passes along the face at a fixed distance (user OK to raise from 30, 2026-11-10)
 BLUR_MARGIN_M = 0.010  # along passes start / end this far beyond the outer block centres
@@ -293,6 +294,29 @@ def turn_image(frame: np.ndarray, deg: float) -> np.ndarray:
     h, w = frame.shape[:2]
     m = cv2.getRotationMatrix2D((w / 2, h / 2), deg, 1.0)
     return cv2.warpAffine(frame, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
+def best_turn(frame: np.ndarray) -> float | None:
+    """Image turn (deg, -180..180) that shows a level TOP edge (long grain above it) in the middle of the
+    frame, or None: any turn of the Dino about its axis (calib). Only the central square is used, which
+    stays inside the image at every turn."""
+    h, w = frame.shape[:2]
+    half = int(min(h, w) / 2 / math.sqrt(2)) - 2
+    best = None
+    for deg in range(-180, 180, TURN_STEP_DEG):
+        crop = turn_image(frame, deg)[h // 2 - half:h // 2 + half, w // 2 - half:w // 2 + half]
+        row = edge_row(crop)
+        if row is None or edge_side(crop, row) < -EDGE_MARGIN:
+            continue
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        size = rim_row(gray)[1]
+        if best is None or size > best[1]:
+            best = (deg, size)
+    if best is None:
+        return None
+    tilt = edge_tilt(turn_image(frame, best[0]))  # finer: the full width at that turn
+    fine = best[0] + (math.degrees(math.atan(tilt)) if tilt is not None and abs(tilt) < 0.2 else 0.0)
+    return (fine + 180) % 360 - 180
 
 
 class ScanError(RuntimeError):
@@ -770,12 +794,15 @@ class FakeCamera(RealCamera):
         shot = min(self.shots, key=lambda s: np.linalg.norm(s.aim - focus))
         depth, drop = self.truth(shot)
         face_point = shot.aim - shot.normal * depth
-        defocus = float((face_point - focus) @ d[:3, 2])  # + = face is beyond the point in focus
-        lateral = float((focus - shot.aim) @ d[:3, 0])
+        # + = face beyond the point in focus: to the face plane along the line of sight (a tilted Dino too)
+        defocus = float((face_point - focus) @ shot.normal) / min(-float(d[:3, 2] @ shot.normal), -0.2)
+        lateral = float((focus - shot.aim) @ shot.pose(0.0, 0.0)[:3, 0])  # along the face
         x_true = d[:3, 0] * math.cos(self.roll) + d[:3, 1] * math.sin(self.roll)
-        tilt = -math.tan(math.asin(float(np.clip(-x_true[2], -1, 1))))  # image slope of a level line
+        y_true = -d[:3, 0] * math.sin(self.roll) + d[:3, 1] * math.cos(self.roll)
+        turn = math.degrees(math.atan2(x_true[2], -y_true[2]))  # the whole picture turned (any angle)
         img = self._image(shot, defocus, (focus[2] - (shot.aim[2] - drop)) / (self.mm_per_px / 1000),
-                          abs(lateral) < 0.018, tilt)
+                          abs(lateral) < 0.018)
+        img = turn_image(img, -turn)
         rng = np.random.default_rng()
         out = [np.clip(img + rng.normal(0, 2, img.shape), 0, 255).astype(np.uint8) for _ in range(n)]
         self.dash.frame(out[-1])
@@ -1186,49 +1213,141 @@ class Scanner:
 
     def calib_face(self, face: str, rows: dict[int, list[Shot]], far_out, st: FaceState) -> FaceState:
         """calib: where the Dino really is in the hand, from the calibration block (jenga_vision.autocalib).
-        Lock on it with the assumed tool, compute the tool that puts the point in focus on the model top edge
-        with the image level, then go there with the new tool and check (twice at most)."""
+        Wide searches, so a Dino pushed in anyhow is found: depth (a sweep through the whole range), the turn
+        about its axis (image turns, any angle), height (edge up / down), sideways (the tower's ends). Then the
+        tool that puts the point in focus on the model top edge of the middle block with the image level, and
+        a check there with it (corrected up to autocalib.CHECKS times)."""
         from jenga_vision import autocalib
         shot = next(s for s in rows[self.args.calib_layer] if s.slot == self.args.calib_slot)
         print(f"\n== calibration block {face} L{shot.layer:02d} S{shot.slot} ({shot.screen})")
-        self.mover.line_to(shot.pose(st.depth_m - RETREAT_M, st.down_m, self.roll))
-        got = self.lock_on(shot, st, wide=True)
-        if got is None:
-            raise ScanError("the calibration block was not found (nothing saved)")
-        start_tool = self.mover.tool
-        found = None
-        sign = -1  # image turn -> Dino roll (fake camera); checked on the image after the first correction
+        self.cam.turn_deg, self.roll = 0.0, 0.0
+        d = None
+        for k, (name, tool) in enumerate(self.args.calib_candidates):
+            if k > 0:  # well out from the face before the hand turns to the next guess
+                self.mover.line_to(shot.pose(-autocalib.SWITCH_OUT_M, 0.0))
+                self.mover.tool = tool
+            print(f"   Dino as {name}: depth sweep {-self.args.search_out_mm:+.0f}..{self.args.max_in_mm:+.0f} mm")
+            self.mover.line_to(shot.pose(-self.args.search_out_mm / 1000 - RETREAT_M, 0.0))
+            d = self.depth_sweep(shot, 0.0)
+            if d is not None:
+                break
+        if d is None:
+            raise ScanError("no focus on the calibration block with any guess (nothing saved)")
+        down = self.find_turn(shot, d)
+        got = self.focus(shot, d, down, False)
+        d = got[0] if got else d
+        st.depth_m, st.depth_known, self.last_depth = d, True, None
+        down = self.top_edge(shot, d, down, st)
+        if down is None:
+            raise ScanError("no top edge on the calibration block (nothing saved)")
+        self.fine_turn()
+        side = self.side_sweep(shot, d, down)
+        here = autocalib.shifted(shot, side or 0.0)
+        got = self.focus(here, d, down, False)
+        d = got[0] if got else d
+        down = self.center_edge(here, d, down, st)
+        self.fine_turn()
+
+        start_tool, found = self.mover.tool, None
         for k in range(1 + autocalib.CHECKS):
-            d, down = (got[0], got[1]) if k == 0 else (st.depth_m, 0.0)
             err_px, tilt = self.edge_now()
             if err_px is None or tilt is None or st.mm_per_px is None:
                 raise ScanError("no edge to measure on the calibration block (nothing saved)")
-            found = autocalib.Found(d, down, self.roll, self.cam.turn_deg, err_px * st.mm_per_px / 1000, tilt)
-            print(f"   {'locked' if k == 0 else f'check {k}'}: depth {d * 1000:+.2f} mm, down {down * 1000:+.2f} mm, "
-                  f"edge {err_px:+.1f} px, image turn {self.cam.turn_deg:+.1f} + tilt {tilt:+.1f} deg")
+            self.cam.turn_deg += tilt
+            found = autocalib.Found(d, down, self.roll, self.cam.turn_deg, err_px * st.mm_per_px / 1000, tilt,
+                                    side if k == 0 and side else 0.0)
+            print(f"   {'found' if k == 0 else f'check {k}'}: depth {d * 1000:+.2f} mm, down {down * 1000:+.2f} mm, "
+                  f"sideways {found.side_m * 1000:+.1f} mm, edge {err_px:+.1f} px, "
+                  f"image turn {self.cam.turn_deg:+.1f} deg (tilt {tilt:+.1f})")
             if (k > 0 and autocalib.good(found)) or k == autocalib.CHECKS:
                 break
-            before = self.mover.tool
-            self.mover.tool = autocalib.new_tool(before, shot, found, sign)
-            self.roll, self.cam.turn_deg = 0.0, 0.0  # the new tool levels the Dino itself
+            self.mover.tool = autocalib.new_tool(self.mover.tool, shot, found)  # a shift: no hand roll
             self.last_depth = None
             self.go(shot, 0.0, 0.0)
             got = self.focus(shot, 0.0, 0.0, False)  # short search round the new tool's focus
             if got is None:
                 raise ScanError("no focus with the new tool (nothing saved)")
-            st.depth_m = got[0]
-            self.go(shot, st.depth_m, 0.0)
-            _, tilt2 = self.edge_now(3)
-            turned = found.turn_deg + found.tilt_deg
-            if k == 0 and tilt2 is not None and abs(turned) > 1.0 and abs(tilt2) > abs(turned):
-                print(f"   {tilt2:+.1f} deg off level with the new tool: the Dino turns the other way, corrected")
-                sign = -sign
-                self.mover.tool = autocalib.new_tool(before, shot, found, sign)
-                self.go(shot, st.depth_m, 0.0)
+            d, down = got[0], 0.0
         self.args.calib_result = {"tool": self.mover.tool, "start_tool": start_tool, "last": found,
-                                  "mm_per_px": st.mm_per_px, "q": list(self.mover.q)}
+                                  "mm_per_px": st.mm_per_px, "q": list(self.mover.q), "side_found": side is not None,
+                                  "turn_deg": self.cam.turn_deg}
+        self.mover.line_to(shot.pose(-RETREAT_M, 0.0))
         self.leave(far_out)
         return st
+
+    def depth_sweep(self, shot: Shot, down: float) -> float | None:
+        """calib: focus value through the whole depth range, outside in, stopping once past a clear peak."""
+        from jenga_vision import autocalib
+        seen: list[tuple[float, float]] = []
+        d = -self.args.search_out_mm / 1000
+        while d <= self.max_in + 1e-9:
+            self.go(shot, d, down)
+            f, frame = self.measure(1)
+            self.log_sample(shot, d, down, f, frame)
+            seen.append((d, f))
+            best = max(seen, key=lambda x: x[1])
+            if best[0] < d and f < autocalib.PAST_PEAK * best[1] and autocalib.clear_peak(seen):
+                break
+            d += autocalib.SWEEP_STEP_M
+        if not autocalib.clear_peak(seen):
+            vals = [f for _, f in seen]
+            print(f"   no clear focus peak ({len(seen)} samples, best {max(vals):.2f}, median {np.median(vals):.2f})")
+            return None
+        best = max(seen, key=lambda x: x[1])
+        print(f"   sharpest at {best[0] * 1000:+.1f} mm (focus {best[1]:.2f}, median {np.median([f for _, f in seen]):.2f})")
+        return best[0]
+
+    def find_turn(self, shot: Shot, depth: float) -> float:
+        """calib: up / down until an edge shows at some image turn; sets cam.turn_deg, returns the height."""
+        from jenga_vision import autocalib
+        for off in autocalib.TURN_SEARCH_MM:
+            self.go(shot, depth, off / 1000)
+            turn = best_turn(self.cam.frames(1)[0])
+            if turn is not None:
+                self.cam.turn_deg = turn
+                print(f"   edge at {off:+.0f} mm, image turned {turn:+.1f} deg to level it")
+                self.up_is_up(shot, depth, off / 1000)
+                return off / 1000
+        raise ScanError("no edge at any image turn within "
+                        f"{max(abs(v) for v in autocalib.TURN_SEARCH_MM):.0f} mm up / down (nothing saved)")
+
+    def up_is_up(self, shot: Shot, depth: float, down: float) -> None:
+        """calib: an end face looks much the same upside down, so check by moving: with the camera 1 mm lower
+        the edge must go up in the image; if it goes down, the image is turned 180 deg more."""
+        row0 = edge_row(self.cam.frames(1)[0])
+        self.go(shot, depth, down + 0.001)
+        row1 = edge_row(self.cam.frames(1)[0])
+        self.go(shot, depth, down)
+        if row0 is None or row1 is None or abs(row1 - row0) < 3:
+            print("   (up / down not checked: the edge did not move clearly)")
+            return
+        if row1 > row0:
+            self.cam.turn_deg = (self.cam.turn_deg + 360) % 360 - 180
+            print(f"   the edge went down with the camera: upside down, image turned {self.cam.turn_deg:+.1f} deg")
+
+    def fine_turn(self) -> None:
+        _, tilt = self.edge_now(3)
+        if tilt is not None:
+            self.cam.turn_deg += tilt
+
+    def side_sweep(self, shot: Shot, depth: float, down: float) -> float | None:
+        """calib: sideways across the tower; where the edge is seen = the tower's end faces of this layer.
+        The middle of that run = the middle block (m along the face, + = image right), or None."""
+        from jenga_vision import autocalib
+        on = []
+        for x in autocalib.side_positions():
+            self.go(autocalib.shifted(shot, x), depth, down)
+            if edge_seen(self.cam.frames(1)[0]):
+                on.append(x)
+        run = autocalib.run_around(on)
+        if run is None:
+            print(f"   sideways: the tower's ends not found (edge seen at {len(on)} positions): sideways not measured")
+            self.go(shot, depth, down)
+            return None
+        lo, hi = run
+        mid = (lo + hi) / 2
+        print(f"   sideways: edge seen from {lo * 1000:+.0f} to {hi * 1000:+.0f} mm: middle block at {mid * 1000:+.1f} mm")
+        return mid
 
     def enter(self, face: str, far_in) -> None:
         a = approach(self.args)
@@ -2772,7 +2891,8 @@ def main() -> None:
     k = sub.add_parser("calib", help="after mount: the robot finds where the Dino sits in the hand today "
                        "(calibration block, focus / edge / level) and with --write saves it")
     add_scan_options(k)
-    k.set_defaults(out=CAPTURES_DIR / RUN_OUT, soft_level=True, edge_ok_px=None, no_prompt=False)
+    k.set_defaults(out=CAPTURES_DIR / RUN_OUT, soft_level=True, edge_ok_px=None, no_prompt=False,
+                   search_out_mm=45.0, max_in_mm=40.0)  # wide: the Dino may sit anyhow (autocalib.py)
     k.add_argument("--write", action="store_true", help="save the new tool into scan_setup.json (backup first)")
     k.add_argument("--no-predict", action="store_true", help="start from the calibrated Dino as it is, not from the "
                    "finger prediction (the fingers look as at the calibration but read other angles)")

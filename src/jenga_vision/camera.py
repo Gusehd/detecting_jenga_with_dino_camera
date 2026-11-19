@@ -24,14 +24,35 @@ def mounted_upside_down() -> bool:
         return False
 
 
+def mounted_turn_deg() -> float:
+    """dino.image_turn_deg in SETUP_FILE: how far the Dino sits turned about its axis on top of
+    image_upside_down, as found by jenga_autoscan calib (any angle; + = counterclockwise on screen).
+    Every frame is turned back by it, so the arm never has to roll the hand for a Dino pushed in turned."""
+    try:
+        return float(json.loads(SETUP_FILE.read_text())["dino"].get("image_turn_deg", 0.0))
+    except (OSError, KeyError, ValueError, TypeError):
+        return 0.0
+
+
+def turn(frame: np.ndarray, deg: float) -> np.ndarray:
+    """The frame turned `deg` about its centre (+ = counterclockwise), borders repeated."""
+    if abs(deg) < 1e-3:
+        return frame
+    h, w = frame.shape[:2]
+    m = cv2.getRotationMatrix2D((w / 2, h / 2), deg, 1.0)
+    return cv2.warpAffine(frame, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
 class DinoCamera:
     """`led` is the Dino LED state set on open (off by default); None leaves it alone. `upside_down` turns
-    every frame 180 deg (None: from SETUP_FILE, see mounted_upside_down)."""
+    every frame 180 deg (None: from SETUP_FILE, see mounted_upside_down), then `turn_deg` more (None: from
+    SETUP_FILE, see mounted_turn_deg)."""
 
     def __init__(self, device: int = 0, width: int = 640, height: int = 480,
-                 led: bool | None = False, upside_down: bool | None = None):
+                 led: bool | None = False, upside_down: bool | None = None, turn_deg: float | None = None):
         self.device = device
         self.upside_down = mounted_upside_down() if upside_down is None else upside_down
+        self.turn_deg = mounted_turn_deg() if turn_deg is None else turn_deg
         self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
         if not self.cap.isOpened():
             raise RuntimeError(f"Cannot open /dev/video{device}")
@@ -57,7 +78,7 @@ class DinoCamera:
         ok, frame = self.cap.read()
         if not ok:
             raise RuntimeError("Frame read failed")
-        return cv2.rotate(frame, cv2.ROTATE_180) if self.upside_down else frame
+        return turn(cv2.rotate(frame, cv2.ROTATE_180) if self.upside_down else frame, self.turn_deg)
 
     def release(self) -> None:
         self.cap.release()
@@ -80,7 +101,7 @@ class GeminiCamera(DinoCamera):
 
     def __init__(self, device: int = 0, width: int = 1280, height: int = 800,
                  roi: float = 0.25, zoom: int = 2):
-        super().__init__(device, width, height, led=None, upside_down=False)
+        super().__init__(device, width, height, led=None, upside_down=False, turn_deg=0.0)
         self.roi, self.zoom = roi, zoom
 
     def read(self) -> np.ndarray:

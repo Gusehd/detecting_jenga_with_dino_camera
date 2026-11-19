@@ -1,31 +1,31 @@
 """Where the Dino really sits in the hand jig today: calibration by the robot itself (jenga_autoscan calib).
 
-The Dino is pushed into the jig by hand, so it never sits exactly as it did at the last calibration. With the
-Dino mounted (jenga_autoscan mount), the robot
+The Dino is pushed into the jig by hand, so it never sits as it did at the last calibration, and the fingers
+holding it don't say reliably where it went (2026-11-19: a hold that looked like the 11-18 one read ring j1
+72 deg instead of 100.5; the finger model gave 61 mm, the robot's view needed the Dino much closer). So the
+robot searches widely, the guesses only being where it starts:
 
-  1. predicts the tool from the finger angles: the jig rides on the ring finger's first link
-     (ah?_link_32; the URDF has no little finger), so the Dino moves with that link from the calibration's
-     hand_q to the fingers now. 2026-11-19: ring j1 83 deg instead of 100 = focus point 37 mm, 17 deg away.
-  2. goes to the calibration block (dino.calibration.<arm>: face, layer, slot; +x L07 middle) with it, searches
-     focus, edge and level (Scanner.lock_on) and computes the tool that puts the point in focus on the model
-     top edge with the image level
-  3. goes there again with the new tool and checks (focus depth, edge row, tilt), at most CHECKS times
+  guesses   the last calibration, then (not with --no-predict) the tool moved with the ring finger's first
+            link (ah?_link_32) from the calibration's hand_q to the fingers now
+  depth     a sweep through -search_out_mm..+max_in_mm (45 / 40) in SWEEP_STEP_M, outside in, stopping past
+            a clear peak; the next guess if there is none
+  turn      any angle about the optical axis: the image turned in TURN_STEP_DEG until a TOP edge shows
+            (best_turn), up / down by TURN_SEARCH_MM until one does
+  height    the edge centred (Scanner.top_edge: a bottom edge -> up a layer)
+  sideways  across the tower (side_positions): where the edge is seen = the layer's end faces; the middle of
+            that run = the middle block. Not measured if the run is not found (then as the guess).
+  check     the tool that puts the point in focus on the model top edge of the middle block, there again
+            with it, corrected up to CHECKS times. The tool is only shifted; the turn is saved as
+            dino.image_turn_deg (camera.DinoCamera turns every frame by it): the arm never rolls the hand.
 
-Measured: depth (along the optical axis), height (image down) and the turn about the optical axis. Not
-measured (kept from the prediction): sideways along the gap and the tilt of the optical axis. Neither moves the
-point in focus: the tool origin is that point, a tilt turns the Dino about it, and a sideways offset only
-shifts the view along the 25 mm wide end face.
-
-The tower is the reference: its model top edge is taken as the truth (as for jenga-calib), so a tower that
-stands off the model moves the calibration with it.
+Not measured: the tilt of the optical axis (kept from the guess). It does not move the point in focus (the
+tool origin), it only turns the Dino about it. The tower is the reference: its model top edge is taken as the
+truth (as for jenga-calib), so a tower that stands off the model moves the calibration with it.
 
     ros2 run jenga_vision jenga_autoscan calib                     # dry run: virtual arm, fake camera
     ros2 run jenga_vision jenga_autoscan calib --send              # real robot: measure, print, save nothing
     ros2 run jenga_vision jenga_autoscan calib --send --write      # and save into scan_setup.json
     ros2 run jenga_vision jenga_autoscan calib --send --write --hand jig_mount_20261119   # after mount --teach
-    ... --no-predict      the fingers look as at the last calibration although they read other angles
-                          (2026-11-19: the same hold read ring j1 72 deg, the 11-18 calibration 100.5):
-                          start from the calibrated Dino as it is, not from the finger prediction
 
 --write backs up scan_setup.json and moves <out>/.rigid.json aside (its image turn and focus belong to the
 old calibration): the next run does a full sweep and saves a new one.
@@ -46,8 +46,14 @@ from jenga_vision.scan_plan import SETUP_FILE, arm_tool
 
 CHECKS = 2  # goes with the new tool to check (and correct again)
 DEPTH_OK_M, HEIGHT_OK_M, LEVEL_OK_DEG = 0.0002, 0.0001, 0.7  # a check this close needs no more correction
-MAX_FROM_PREDICTION = (0.015, 15.0)  # m, deg: found further than this from the prediction -> not saved
-MAX_PREDICTION = (0.06, 30.0)  # m, deg: fingers that far off -> mount again instead
+SWEEP_STEP_M = 0.0015  # depth sweep step (the focus curve's s is about 2 mm)
+PAST_PEAK = 0.6  # the sweep stops below this x the best so far, once the peak is clear
+PEAK_RATIO = 1.6  # a clear peak: this x the median of the sweep, not at its ends
+SWITCH_OUT_M = 0.06  # this far out from the face before the hand turns to the next guess
+TURN_SEARCH_MM = (0, -4, 4, -8, 8, -12, 12, -16, 16, -20, 20, -24, 24)  # heights tried for an edge at any turn
+SIDE_RANGE_M, SIDE_STEP_M = 0.11, 0.006  # sideways sweep: +-, step (tower 115 mm wide, middle block 38.5)
+MIN_RUN_M = 0.07  # the end faces seen over at least this much (2 of 3 blocks), else sideways not measured
+PREDICT_MIN_M = 0.005  # the finger guess is tried only if it differs from the last calibration this much
 JIG_LINK = "link_32"  # ring finger, after joint 31 (first phalanx)
 
 
@@ -59,23 +65,60 @@ class Found:
     turn_deg: float  # image turn that levels the edge
     edge_err_m: float  # edge this far below the image centre (+ = below)
     tilt_deg: float  # edge tilt left in the turned image
+    side_m: float = 0.0  # commanded this far sideways (+ = image right) from the model aim to see the middle block
 
 
-def delta(shot, f: Found, roll_sign: int = 1) -> np.ndarray:
-    """Dino frame now -> Dino frame where it really is, in the Dino frame (tool @ delta = new tool)."""
+def delta(shot, f: Found) -> np.ndarray:
+    """Dino frame now -> where its point in focus really is, in the Dino frame (tool @ delta = new tool).
+    Only a shift: the turn about the optical axis goes to dino.image_turn_deg (the camera turns every frame),
+    so the arm never rolls the hand for it."""
     p = shot.pose(f.depth, f.down, f.roll)  # the commanded Dino pose, world
+    p[:3, 3] += p[:3, 0] * f.side_m
     really = shot.aim - p[:3, 1] * f.edge_err_m  # point in focus: on the model face, the edge err above the edge
     t = p[:3, :3].T @ (really - p[:3, 3])  # z: -depth (in focus = on the model face), y: -(down + edge)
-    return transform(axis_angle(np.array([0, 0, 1.0]), roll_sign * math.radians(f.turn_deg + f.tilt_deg)), t)
+    return transform(np.eye(3), t)
 
 
-def new_tool(tool: np.ndarray, shot, f: Found, roll_sign: int = 1) -> np.ndarray:
-    return tool @ delta(shot, f, roll_sign)
+def new_tool(tool: np.ndarray, shot, f: Found) -> np.ndarray:
+    return tool @ delta(shot, f)
 
 
 def good(f: Found) -> bool:
-    return (abs(f.depth) < DEPTH_OK_M and abs(f.down + f.edge_err_m) < HEIGHT_OK_M
-            and abs(f.turn_deg + f.tilt_deg) < LEVEL_OK_DEG)
+    return abs(f.depth) < DEPTH_OK_M and abs(f.down + f.edge_err_m) < HEIGHT_OK_M and abs(f.tilt_deg) < LEVEL_OK_DEG
+
+
+def shifted(shot, side_m: float):
+    """The shot moved `side_m` along the face (+ = image right)."""
+    from dataclasses import replace
+    return replace(shot, aim=shot.aim + shot.pose(0.0, 0.0)[:3, 0] * side_m)
+
+
+def side_positions() -> list[float]:
+    n = int(round(SIDE_RANGE_M / SIDE_STEP_M))
+    return [k * SIDE_STEP_M for k in range(-n, n + 1)]
+
+
+def run_around(on: list[float]) -> tuple[float, float] | None:
+    """The longest run of neighbouring positions in `on` (sorted, m), if at least MIN_RUN_M long."""
+    runs, start = [], None
+    for k, x in enumerate(on):
+        if start is None:
+            start = x
+        if k + 1 == len(on) or on[k + 1] - x > 2.5 * SIDE_STEP_M:  # one position missed (a seam) is still the run
+            runs.append((start, x))
+            start = None
+    if not runs:
+        return None
+    lo, hi = max(runs, key=lambda r: r[1] - r[0])
+    return (lo, hi) if hi - lo >= MIN_RUN_M else None
+
+
+def clear_peak(seen: list[tuple[float, float]]) -> bool:
+    vals = [f for _, f in seen]
+    if len(vals) < 5:
+        return False
+    k = int(np.argmax(vals))
+    return 1 <= k <= len(vals) - 2 and vals[k] > PEAK_RATIO * float(np.median(vals))
 
 
 def link_pose(arm: str, hq, link: str = JIG_LINK) -> np.ndarray:
@@ -141,25 +184,20 @@ def calib_main(args, scan_main, run_faces: dict) -> None:
     tool_cal = arm_tool(setup["dino"], args.arm)
     ref_hq = cal.get("hand_q")
     now_hq, source = hand_now(args, ref_hq or [0.0] * 20)
-    if args.no_predict:  # the fingers look as at the calibration, only their joint readings differ
-        tool0 = tool_cal
-        print(f"--no-predict: starting from the calibrated Dino as it is (fingers read from {source})")
-    elif ref_hq:
-        tool0 = predict_tool(tool_cal, args.arm, ref_hq, now_hq)
-        worst = max(abs(math.degrees(a - b)) for a, b in zip(now_hq[12:20], ref_hq[12:20]))
+    guesses = [("the last calibration", tool_cal)]
+    if ref_hq:
+        worst = max(abs(math.degrees(x - y)) for x, y in zip(now_hq[12:20], ref_hq[12:20]))
         print(f"fingers ({source}): ring / little up to {worst:.1f} deg off the calibration's '{cal.get('hand_pose')}'")
-        print(f"   predicted Dino: {change_text(tool_cal, tool0)}")
-        mm, total, _, _ = change(tool_cal, tool0)
-        if np.linalg.norm(mm) > MAX_PREDICTION[0] * 1000 or total > MAX_PREDICTION[1]:
-            raise SystemExit("the fingers are too far from the calibration to predict the Dino: mount it again")
-    else:
-        tool0 = tool_cal
-        print("no hand_q in the calibration: starting from the calibrated tool as it is")
-
+        predicted = predict_tool(tool_cal, args.arm, ref_hq, now_hq)
+        if not args.no_predict and np.linalg.norm(change(tool_cal, predicted)[0]) > PREDICT_MIN_M * 1000:
+            print(f"   second guess, from the fingers: {change_text(tool_cal, predicted)}")
+            guesses.append(("predicted from the fingers", predicted))
+    tool0 = tool_cal
     face = cal["face"].replace("+", "p").replace("-", "m")
     args.face, args.layers = face, [cal["layer"], cal["layer"]]
     args.calib_layer, args.calib_slot = cal["layer"], cal["slot"]
     args.tool, args.ignore_hand, args.fix_hand, args.calib_result = tool0, True, False, None
+    args.calib_candidates = guesses
     for k, v in run_faces.get(cal["face"], {}).items():  # seed, via, end of the jig scan
         if k in ("seed", "via", "end"):
             setattr(args, k, v)
@@ -174,15 +212,15 @@ def calib_main(args, scan_main, run_faces: dict) -> None:
         return
     tool = res["tool"]
     print(f"\nDino against the calibration of {cal.get('date', '?')}: {change_text(tool_cal, tool)}")
-    print(f"   against the prediction from the fingers: {change_text(tool0, tool)}")
+    print(f"   turned about its axis {res['turn_deg']:+.1f} deg more than then (saved as an image turn, the arm "
+          "does not roll for it)")
+    if not np.allclose(res["start_tool"], tool_cal):
+        print(f"   against the finger guess it started from: {change_text(res['start_tool'], tool)}")
+    if not res["side_found"]:
+        print("   sideways not measured (the tower's ends not found): kept from the guess")
     if not good(res["last"]):
         print("   the last check was not within "
               f"{DEPTH_OK_M * 1000:.1f} mm / {HEIGHT_OK_M * 1000:.1f} mm / {LEVEL_OK_DEG} deg")
-    mm, total, _, _ = change(tool0, tool)
-    if np.linalg.norm(mm) > MAX_FROM_PREDICTION[0] * 1000 or total > MAX_FROM_PREDICTION[1]:
-        print("NOT saved: that far from the prediction looks like a wrong block or edge; look at the session images "
-              f"({session})")
-        return
     if not args.write:
         print("not saved (add --write)")
         return
@@ -199,6 +237,10 @@ def write(args, setup: dict, tool: np.ndarray, now_hq, res: dict) -> None:
     d = setup["dino"]
     old = d["calibration"][args.arm]
     d["tool_hand"][args.arm] = [[round(float(v), 6) for v in row] for row in tool]
+    turned = (d.get("image_turn_deg", 0.0) + res["turn_deg"] + 180) % 360 - 180
+    d["image_turn_deg"] = round(float(turned), 2)
+    d["_image_turn_note"] = ("image_turn_deg: the Dino's turn about its axis in the jig on top of image_upside_down, "
+                             "from jenga_autoscan calib; camera.DinoCamera turns every frame back by it")
     cal = {**old, "pose": "autoscan calib", "q": [round(float(v), 6) for v in res["q"]],
            "date": time.strftime("%Y-%m-%d %H:%M"), "method": "jenga_autoscan calib (focus, edge, level; "
            "sideways and axis tilt from the finger prediction)", "hand_q": [round(float(v), 6) for v in now_hq],

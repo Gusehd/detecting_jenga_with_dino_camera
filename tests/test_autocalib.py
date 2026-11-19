@@ -87,11 +87,25 @@ def test_write(tmp_path, monkeypatch):
 
 
 def test_route_keeps_the_arm_configuration():
-    # 2026-11-19 teammate PC: -y planned with the wrist flipped; on_route gives the 11-18 configuration, same Dino pose
+    # -y: planned in the other wrist configuration (ours / 11-18: j6 at its limit on the top layer), on_route gives
+    # the fixed one (the teammate PC's, j6 far from the limits) at the same Dino pose
     from jenga_vision.autoscan import ROUTE, on_route
     from jenga_vision.kinematics import Chain
-    flipped = [-0.43192, -0.90688, 2.12582, 0.83385, -0.26467, 1.4791, 2.31922]
-    q = on_route("right", "-y", TOOL, flipped)
-    assert max(abs(a - b) for a, b in zip(q, ROUTE[("right", "-y")][0])) < math.radians(10)
+    other = [-0.69173, -1.51307, 2.03659, 1.24368, 3.19336, -1.33355, 5.11459]
+    q = on_route("right", "-y", TOOL, other)
+    assert max(abs(a - b) for a, b in zip(q, ROUTE[("right", "-y")][0])) < math.radians(90)
+    assert q[5] > 0  # j6 on the far side of its -97 deg limit
     chain = Chain("right")
-    assert np.allclose(chain.fk(np.array(q), TOOL), chain.fk(np.array(flipped), TOOL), atol=1e-4)
+    assert np.allclose(chain.fk(np.array(q), TOOL), chain.fk(np.array(other), TOOL), atol=1e-4)
+
+
+def test_clearance_catches_the_move_that_hit_the_tower():
+    from jenga_vision.arm_slider import POSES_FILE
+    from jenga_vision.autoscan import ROUTE, TEAMMATE_HOME
+    from jenga_vision.clearance import MIN_CLEAR_MM, Clearance
+    from jenga_vision.scan_plan import Tower
+    c = Clearance("right", Tower(SETUP["tower"], SETUP.get("aim", 0.5)), TOOL, HAND_Q)
+    ready = json.loads(POSES_FILE.read_text())["right"]["jig_ready_1118"]
+    assert c.along(ROUTE[("right", "-y")][1], ready)[0] < MIN_CLEAR_MM  # 2026-11-19: -y out to jig_ready_1118
+    assert c.along(ROUTE[("right", "-y")][1], TEAMMATE_HOME["right"])[0] > 100  # the way out now
+    assert c.along(ready, ROUTE[("right", "+x")][0])[0] > 100

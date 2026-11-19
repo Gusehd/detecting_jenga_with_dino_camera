@@ -98,6 +98,9 @@ def load_joints(path: Path = URDF) -> dict[str, Joint]:
     return joints
 
 
+LIMIT_GAIN = 0.05  # ik(avoid_limits=True): null-space step towards the middle of the limited joints
+
+
 class Chain:
     """world -> tip through the 7 arm joints."""
 
@@ -146,16 +149,25 @@ class Chain:
         return jac
 
     def ik(self, goal: np.ndarray, seed, tool: np.ndarray | None = None,
-           iters: int = 300, tol_m: float = 1e-5, tol_rad: float = 1e-4) -> np.ndarray | None:
-        """Joint values reaching the 4x4 `goal` (world), starting at `seed`; None if not reached."""
+           iters: int = 300, tol_m: float = 1e-5, tol_rad: float = 1e-4, avoid_limits: bool = False) -> np.ndarray | None:
+        """Joint values reaching the 4x4 `goal` (world), starting at `seed`; None if not reached. `avoid_limits`:
+        also move in the 7th joint's null space (the elbow) away from the limits of the joints that have them
+        (xArm j2, j4, j6), for a pose the plain solve can't reach at a limit."""
         q = np.array(seed, dtype=float)
+        finite = np.isfinite(self.lo) & np.isfinite(self.hi) & (self.hi - self.lo < 2 * np.pi)
+        mid = np.where(finite, (self.lo + self.hi) / 2, 0.0)
+        span = np.where(finite, self.hi - self.lo, 1.0)
         for _ in range(iters):
             t = self.fk(q, tool)
             e = np.concatenate([goal[:3, 3] - t[:3, 3], rot_error(goal[:3, :3], t[:3, :3])])
             if np.linalg.norm(e[:3]) < tol_m and np.linalg.norm(e[3:]) < tol_rad:
                 return q
             jac = self.jacobian(q, tool)
-            dq = jac.T @ np.linalg.solve(jac @ jac.T + 1e-4 * np.eye(6), e)
+            pinv = jac.T @ np.linalg.inv(jac @ jac.T + 1e-4 * np.eye(6))
+            dq = pinv @ e
+            if avoid_limits:
+                away = np.where(finite, (mid - q) / span ** 2, 0.0)
+                dq = dq + (np.eye(len(q)) - pinv @ jac) @ (LIMIT_GAIN * away)
             step = np.max(np.abs(dq))
             if step > 0.2:
                 dq *= 0.2 / step

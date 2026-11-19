@@ -88,6 +88,7 @@ from jenga_vision.camera import focus_value
 from jenga_vision.dashboard import DEFAULT_PORT, Dashboard, NoDashboard, replay
 from jenga_vision.focus_search import find_peak
 from jenga_vision.kinematics import Chain
+from jenga_vision.clearance import MIN_CLEAR_MM
 from jenga_vision.paths import CAPTURES_DIR, GAME_BLOCK_FILE
 from jenga_vision.scan_plan import (FACE_NORMALS, SETUP_FILE, Tower, arm_tool, away_from_limits, plan_face_stable,
                                     shot_pose, view_yaw)
@@ -99,16 +100,22 @@ RAMP_DT_S = 0.05  # time between trajectory points
 MAX_JOINT_STEP_DEG = 3.0  # per IK step; more = the arm would change configuration
 RETREAT_M = 0.03  # out from the face between layers
 # The arm configuration of each face, fixed (the tower stands in one place): first and last planned point of the
-# jig scan (layers 2..14) as on our PC, the configuration the 2026-11-18 robot scans ran in (-y wrist j5 160-180,
-# j6 -80..-95, j7 265-290). The plan's ends are solved again from these, so the arm can't take another
-# configuration: on the teammate's PC (2026-11-19) -y came out with the wrist flipped (j5 -15, j6 +85, j7 133)
-# and the 186 deg move back to jig_ready_1118 swept the tower over.
-ROUTE = {("right", "-y"): ([-0.69173, -1.51307, 2.03659, 1.24368, 3.19336, -1.33355, 5.11459],
-                           [-0.5679, -1.17622, 1.4082, 1.01752, 2.76289, -1.22413, 4.7139]),
+# jig scan (layers 2..14); the plan's ends are solved again from these, so the arm can't take another one.
+#   -y: wrist j5 -15, j6 +85, j7 133 (as planned on the teammate's PC 2026-11-19). The configuration of our PC and
+#       the 11-18 robot scans (j5 183, j6 -76, j7 293) has j6 at its -97 limit on the top layer's left block: on the
+#       teammate's tower (3 mm deeper) the scan stopped there. This one: j6 90 deg from its limits, arm 55 mm from
+#       the tower box. Its way out must not be jig_ready_1118 (that move hit the tower, -12 mm in the model):
+#       -y starts from and ends at the teammate's home (169-199 mm clear).
+#   +x: as on our PC and the 11-18 scans, from and to jig_ready_1118 (11 / 26 deg, 120 mm clear).
+ROUTE = {("right", "-y"): ([-0.43192, -0.90688, 2.12582, 0.83385, -0.26467, 1.4791, 2.31922],
+                           [0.15296, -0.94202, 1.14648, 0.67408, -0.64335, 1.55981, 1.76974]),
          ("right", "+x"): ([0.09832, 0.71072, 0.12397, 1.35043, 2.40767, 0.94618, 3.43459],
                            [0.00513, 0.6177, 0.46695, 1.7739, 2.05785, 0.3974, 3.82999])}
+# run: where each face starts and ends (over run_faces of scan_setup.json), see ROUTE
+FACE_ROUTE = {"-y": {"seed": "teammate_home", "via": [], "end": "teammate_home"},
+              "+x": {"seed": "jig_ready_1118", "via": ["jig_ready_1118"], "end": "jig_ready_1118"}}
 ROUTE_TOL_DEG = 90.0  # any joint further from the route -> stop (a flipped wrist is 150+ off; the elbow may vary)
-ROUTE_VERSION = "route-2026-11-19"  # in the plan cache key: plans made before the fixed route are not used
+ROUTE_VERSION = "route-2026-11-19b"  # in the plan cache key: plans made before the fixed route are not used
 COLUMN_BACK_M = 0.08  # --columns: back along the lens from a column before the joint move to the next one
 SETTLE_S = 1.0  # wait after a move before reading frames: 0.3 s still shakes the focus value (hold test)
 DEFAULT_MM_PER_PX = 0.02  # Dino at dial 30; measured on the first shot when possible
@@ -132,6 +139,14 @@ START_TOL_DEG = 2.0  # run: the arm this close to the scans' start pose needs no
 # (/joint_states xarm_left_joint1..7 = -8.0 1.0 24.0 44.0 -74.0 93.0 -43.3 deg), mirrored (MIRROR_SIGNS).
 # From jig_ready_1118 the move is up to 154 deg on joint 7 and 73 on joint 5.
 TEAMMATE_HOME = {"right": [0.139598, 0.017453, -0.41889, 0.767863, 1.291499, 1.623174, 0.755739]}
+
+
+def saved_poses(arm: str) -> dict[str, list[float]]:
+    """arm_poses.json of `arm` plus the poses kept in the code (teammate_home)."""
+    poses = json.loads(POSES_FILE.read_text())[arm]
+    if arm in TEAMMATE_HOME:
+        poses.setdefault("teammate_home", TEAMMATE_HOME[arm])
+    return poses
 RUN_OUT = "jig1118b"  # in captures/: the plan cache and per-face state of the 11-18 jig calibration
 # Per face, as tested on the real robot 2026-11-03. -y: straight from home, entering at the top layer
 # (cali_way_1 made the cables hit the tower; entering low passes 116 mm from the axis instead of 157).
@@ -479,6 +494,7 @@ def approach(args) -> dict:
 
 
 class Mover:
+    clearance = None  # clearance.Clearance: every joint move checked against the tower model first
     """Joint moves and straight Dino-frame moves; virtual (joints just set) without send."""
 
     def __init__(self, arm: str, tool: np.ndarray, send: bool, q0, joint_speed_deg: float, line_speed_mm: float):
@@ -535,7 +551,14 @@ class Mover:
             part = np.array(part, float)
             biggest = float(np.degrees(np.max(np.abs(part - self.q))))
             seconds = max(min_s, biggest / v)
-            print(f"   joint move {label}: largest joint {biggest:.0f} deg at {v:.0f} deg/s, {seconds:.1f} s")
+            near = ""
+            if self.clearance is not None:  # checked before anything is sent (clearance.py)
+                mm, what, at = self.clearance.along(self.q, part)
+                near = f", {what} {mm:.0f} mm from the tower"
+                if mm < MIN_CLEAR_MM:
+                    raise ScanError(f"joint move {label} would bring the {what} {mm:.0f} mm close to the tower "
+                                    f"(model) at {at:.0%} of the way: not sent")
+            print(f"   joint move {label}: largest joint {biggest:.0f} deg at {v:.0f} deg/s, {seconds:.1f} s{near}")
             self._send([part], seconds)
 
     def speed_for(self, start: np.ndarray, goal: np.ndarray) -> tuple[float, str]:
@@ -573,6 +596,8 @@ class Mover:
             s = i / n
             g = transform(start[:3, :3] @ axis_angle(axis, ang * s), start[:3, 3] + dp * s)
             nq = self.chain.ik(g @ np.linalg.inv(self.tool), q)
+            if nq is None:  # at a joint limit (2026-11-19 -y L14 left: j6 at -97): bend the elbow away from it
+                nq = self.chain.ik(g @ np.linalg.inv(self.tool), q, avoid_limits=True, iters=1000)
             if nq is None:
                 raise ScanError("IK failed on a straight move (out of reach?)")
             if np.degrees(np.max(np.abs(nq - q))) > MAX_JOINT_STEP_DEG:
@@ -1377,15 +1402,14 @@ class Scanner:
     def enter(self, face: str, far_in) -> None:
         a = approach(self.args)
         for via in self.args.via:
-            self.mover.joint_move(json.loads(POSES_FILE.read_text())[self.mover.arm][via], via, a["speed"],
-                                  min_s=a["min_s"])
+            self.mover.joint_move(saved_poses(self.mover.arm)[via], via, a["speed"], min_s=a["min_s"])
         self.mover.joint_move(far_in, f"{face} far in", a["speed"], a["slow_end"], a["min_s"])
 
     def leave(self, far_out) -> None:
         a = approach(self.args)
         self.mover.line_to(np.array(self.mover.chain.fk(far_out, self.mover.tool)))
         for k, via in enumerate(reversed(self.args.via)):
-            self.mover.joint_move(json.loads(POSES_FILE.read_text())[self.mover.arm][via], via, a["speed"],
+            self.mover.joint_move(saved_poses(self.mover.arm)[via], via, a["speed"],
                                   a["slow_start"] if k == 0 else None, a["min_s"])
 
     def lock_on(self, shot: Shot, st: FaceState, wide: bool) -> tuple[float, float, float] | None:
@@ -2482,7 +2506,8 @@ def run_main(args) -> None:
     layers = range(args.layers[0], args.layers[1] + 1)
     # run_faces.<face> in scan_setup.json overrides RUN_FACES (2026-11-18 hand jig: other IK seeds, no old via
     # poses, back to home_1118), so the robot-tested v2 settings stay as they were
-    faces = [(f, {**s, **setup.get("run_faces", {}).get(f, {})}) for f, s in RUN_FACES if s["face"] in args.faces]
+    faces = [(f, {**s, **setup.get("run_faces", {}).get(f, {}), **FACE_ROUTE.get(f, {})})
+             for f, s in RUN_FACES if s["face"] in args.faces]
     args.planned_total = sum(len(r) for f, _ in faces for r in face_shots(tower, f, layers).values())
     args.dash.event(total=args.planned_total)
 
@@ -2495,9 +2520,9 @@ def run_main(args) -> None:
         elif input("Enter = start, q = quit > ").strip().lower() == "q":
             return
         t0 = time.time()
-    start = setup.get("run_faces", {}).get(faces[0][0], {}).get("seed") if faces and args.no_pick else None
-    if start:  # the fixed route starts there (ROUTE): e.g. from the teammate's home first to jig_ready_1118
-        go_home(args, start, json.loads(POSES_FILE.read_text())[args.arm][start], tol_deg=START_TOL_DEG)
+    start = faces[0][1].get("seed") if faces and args.no_pick else None
+    if start:  # the fixed route starts there (ROUTE, FACE_ROUTE): -y from the teammate's home
+        go_home(args, start, saved_poses(args.arm)[start], tol_deg=START_TOL_DEG)
         args.start = start
     if not args.no_pick and not timed_task("pick_dino"):
         print("stopped in pick_dino: nothing else runs")
@@ -2550,18 +2575,27 @@ def run_main(args) -> None:
     if not args.no_home:
         name = args.home or json.loads(SETUP_FILE.read_text()).get("run_home")
         if name:
-            go_home(args, name, json.loads(POSES_FILE.read_text())[args.arm][name])
+            go_home(args, name, saved_poses(args.arm)[name])
         elif args.arm in TEAMMATE_HOME:
             go_home(args, "the teammate's home", TEAMMATE_HOME[args.arm])
     args.dash.event(stage="done", ended=time.time())
     report()
 
 
+def home_clearance(args):
+    from jenga_vision.clearance import Clearance
+    setup = json.loads(SETUP_FILE.read_text())
+    return Clearance(args.arm, Tower(setup["tower"], setup.get("aim", 0.5)), arm_tool(setup["dino"], args.arm),
+                     setup["dino"].get("calibration", {}).get(args.arm, {}).get("hand_q") or [0.0] * 20)
+
+
 def go_home(args, name: str, target: list[float], tol_deg: float = 0.0) -> None:
     """run: the last move, a joint move from the scans' end pose (jig_ready_1118, away from the tower) to the
     teammate's home (TEAMMATE_HOME, or a saved pose: --home, run_home of scan_setup.json)."""
     if not args.send:
-        print(f"\n(virtual) the arm would go to '{name}'")
+        q = saved_poses(args.arm)[args.start] if getattr(args, "start", None) in saved_poses(args.arm) else None
+        note = "" if q is None else " ({} {:.0f} mm from the tower)".format(*home_clearance(args).along(q, target)[1::-1])
+        print(f"\n(virtual) the arm would go to '{name}'{note}")
         return
     from jenga_vision.arm_slider import ArmNode
     node = ArmNode(args.arm, True, node_name="jenga_autoscan_home")
@@ -2575,6 +2609,10 @@ def go_home(args, name: str, target: list[float], tol_deg: float = 0.0) -> None:
         biggest = float(np.degrees(np.max(np.abs(np.array(target) - np.array(node.current())))))
         if biggest <= tol_deg:
             return
+        mm, what, at = home_clearance(args).along(node.current(), target)
+        if mm < MIN_CLEAR_MM:
+            raise ScanError(f"the move to '{name}' would bring the {what} {mm:.0f} mm close to the tower (model) at "
+                            f"{at:.0%} of the way: not sent")
         seconds = max(2.0, biggest / HOME_SPEED)
         print(f"\n===== {name} =====\n   joint move: largest joint {biggest:.0f} deg at {HOME_SPEED:.0f} deg/s, {seconds:.1f} s")
         node.move(target, seconds)
@@ -2717,7 +2755,7 @@ def scan_main(args) -> tuple[Path | None, bool]:
         print(f"   the Dino looks at {face} turned {view_yaw(setup, face):+.0f} deg (view_yaw_deg in {SETUP_FILE})")
     if not rows:
         raise SystemExit(f"no end faces of layers {args.layers} on face {face}")
-    poses = json.loads(POSES_FILE.read_text())[args.arm]
+    poses = saved_poses(args.arm)
     seed = poses[args.seed]
     plan_setup = dict(setup, dino=dict(setup["dino"], standoff_m=0.0))
     print(f"planning {face} layers {args.layers[0]}..{args.layers[1]} (IK seed '{args.seed}') ...")
@@ -2742,6 +2780,9 @@ def scan_main(args) -> tuple[Path | None, bool]:
     session = args.out / time.strftime("autoscan_%Y%m%d_%H%M%S")
     session.mkdir(parents=True, exist_ok=True)
     mover = Mover(args.arm, tool, args.send, poses[args.start], args.joint_speed, args.line_speed)
+    from jenga_vision.clearance import Clearance
+    mover.clearance = Clearance(args.arm, tower, tool, setup["dino"].get("calibration", {}).get(args.arm, {}).get(
+        "hand_q") or [0.0] * 20)
     if mover.ros is not None and not args.fake:  # jenga-sim's hand is not the real one
         time.sleep(0.3)  # the hand joints come in the same /joint_states
         worst = hand_check(setup, args.arm, dict(mover.ros.positions))

@@ -133,7 +133,7 @@ RUN_LAYERS = [2, 14]  # floors 3..15: not floors 1, 2 nor the top two (user, 202
 # run without options = the 2026-11-18 hand jig scan (Dino mounted once with `mount`, no pick / place);
 # --preset=none for the old defaults, --pick / --place for the 11-09 quick pick / place
 RUN_PRESET = "jig-full"
-HOME_SPEED = 20.0  # deg/s of the last move of run to run_home (and of the first one to the scans' start)
+HOME_SPEED = 40.0  # deg/s of the last move of run to run_home (and of the first one to the scans' start); 20 was too slow (user)
 START_TOL_DEG = 2.0  # run: the arm this close to the scans' start pose needs no move there
 # The teammate's home for the right arm, where run ends (2026-11-19): the left arm at their home on the robot
 # (/joint_states xarm_left_joint1..7 = -8.0 1.0 24.0 44.0 -74.0 93.0 -43.3 deg), mirrored (MIRROR_SIGNS).

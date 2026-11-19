@@ -795,7 +795,7 @@ class FakeCamera(RealCamera):
         depth, drop = self.truth(shot)
         face_point = shot.aim - shot.normal * depth
         # + = face beyond the point in focus: to the face plane along the line of sight (a tilted Dino too)
-        defocus = float((face_point - focus) @ shot.normal) / min(-float(d[:3, 2] @ shot.normal), -0.2)
+        defocus = float((face_point - focus) @ shot.normal) / max(-float(d[:3, 2] @ shot.normal), 0.2)
         lateral = float((focus - shot.aim) @ shot.pose(0.0, 0.0)[:3, 0])  # along the face
         x_true = d[:3, 0] * math.cos(self.roll) + d[:3, 1] * math.sin(self.roll)
         y_true = -d[:3, 0] * math.sin(self.roll) + d[:3, 1] * math.cos(self.roll)

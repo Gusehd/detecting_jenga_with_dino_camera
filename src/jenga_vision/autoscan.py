@@ -1307,7 +1307,9 @@ class Scanner:
         for k in range(1 + autocalib.CHECKS):
             err_px, tilt = self.edge_now()
             if err_px is None or tilt is None or st.mm_per_px is None:
-                raise ScanError("no edge to measure on the calibration block (nothing saved)")
+                why = ("edge not seen in the last 5 frames" if err_px is None else "edge seen but its tilt not"
+                       if tilt is None else "image scale never measured (the edge was not seen when centring)")
+                raise ScanError(f"no edge to measure on the calibration block: {why} (nothing saved)")
             self.cam.turn_deg += tilt
             found = autocalib.Found(d, down, self.roll, self.cam.turn_deg, err_px * st.mm_per_px / 1000, tilt,
                                     side if k == 0 and side else 0.0)

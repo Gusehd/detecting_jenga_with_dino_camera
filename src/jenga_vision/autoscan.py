@@ -2523,9 +2523,8 @@ def run_main(args) -> None:
         steps = ([] if args.no_pick else ["pick_dino"]) + [f for f, _ in faces] + ([] if args.no_place else ["place_dino"])
         print("the robot will run: " + " -> ".join(steps))
         print(f"layers {args.layers[0]}..{args.layers[1]}, dial 40, jenga-view and jenga-arm closed, arm at home")
-        if args.yes or not sys.stdin.isatty():  # ros2 launch / jenga_game: the start button was the confirmation
-            print("--yes (or no terminal): starting without Enter")
-        elif input("Enter = start, q = quit > ").strip().lower() == "q":
+        # no Enter (user, 2026-11-20): --send is the confirmation; the only Enter of the day is mount's torque step
+        if args.ask and sys.stdin.isatty() and input("Enter = start, q = quit > ").strip().lower() == "q":
             return
         t0 = time.time()
     start = faces[0][1].get("seed") if faces and args.no_pick else None
@@ -3066,13 +3065,13 @@ def main() -> None:
     u.add_argument("--home", help="saved arm pose to go to at the end (default: run_home of scan_setup.json if set, "
                    "else TEAMMATE_HOME)")
     u.add_argument("--no-home", action="store_true", help="stay at the scans' end pose (jig_ready_1118)")
-    u.add_argument("--yes", action="store_true",
-                   help="no 'Enter = start' question with --send (also without a terminal, e.g. ros2 launch)")
+    u.add_argument("--ask", action="store_true", help="ask 'Enter = start' before the first move (default: none)")
+    u.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)  # no Enter is the default now; kept for launches
     k = sub.add_parser("calib", help="after mount: the robot finds where the Dino sits in the hand today "
                        "(calibration block, focus / edge / level) and with --write saves it")
     add_scan_options(k)
-    k.set_defaults(out=CAPTURES_DIR / RUN_OUT, soft_level=True, edge_ok_px=None, no_prompt=False,
-                   search_out_mm=45.0, max_in_mm=40.0)  # wide: the Dino may sit anyhow (autocalib.py)
+    k.set_defaults(out=CAPTURES_DIR / RUN_OUT, soft_level=True, edge_ok_px=None, no_prompt=True,
+                   search_out_mm=45.0, max_in_mm=40.0)  # wide: the Dino may sit anyhow (autocalib.py); no Enter
     k.add_argument("--write", action="store_true", help="save the new tool into scan_setup.json (backup first)")
     k.add_argument("--no-predict", action="store_true", help="start from the calibrated Dino as it is, not from the "
                    "finger prediction (the fingers look as at the calibration but read other angles)")

@@ -15,7 +15,7 @@
 | 예전 방식 | 집기·꽂기 포함 v2 (`--preset=v2`, 태그 `scan-v2`, 약 3분 15초)는 그대로 있음 |
 | 알려진 한계 | 블록의 한쪽 끝만 봅니다. 두 면 사이 약 1 mm 어긋남(보정을 +x에서만 함) |
 
-자세한 기록은 `docs/progress_2026-11-02_robot.md` 맨 위, 오늘 보고 페이지는 `docs/share_20261118/index.html`입니다.
+자세한 기록은 `docs/progress_2026-11-02_robot.md` 맨 위, 오늘 보고 페이지는 `docs/share_20261118/index.html`입니다. 현장 운영 순서는 `docs/ces_plan.md`.
 
 ## 설치
 
@@ -65,8 +65,8 @@ uv run jenga-autoscan calib --send --write  # 오늘 꽂힌 Dino 위치를 로�
 uv run jenga-autoscan hand                # 약지·새끼가 보정 때와 같은지 (읽기만)
 uv run jenga-autoscan run --send [--record]
 # 옵션 없는 run = --preset=jig-full, 집기·꽂기 없음, --out captures/jig1118b (예전 긴 명령과 같은 설정).
-# 팔은 jig_ready_1118에서 시작·복귀. Enter → −y 스캔 → +x 스캔 → 순서 저장. 터미널이 없으면(ros2 launch)
-# 또는 --yes면 Enter 없이 시작. --record: Dino 화면을 mp4로.
+# 팔은 동료 home에서 시작·복귀. −y 스캔 → +x 스캔 → 순서 저장. calib과 run은 Enter 없이 바로 움직임
+# (Enter는 mount의 토크 단계만; --ask면 run이 시작 전에 물음). --record: Dino 화면을 mp4로.
 # 손가락이 보정보다 8° 넘게 어긋나면 아무것도 움직이지 않고 멈춤(exit 1): mount를 다시 하거나, Dino가 지그에
 # 그대로 있으면 run --send --fix-hand(손가락만 보정 자세로 다시 굽히고 재검사).
 # 순서 파일은 $JENGA_STATE_DIR/jenga_pick_candidates.json, 그리고 ros_pkgs 안에서 돌면 ros_pkgs/game_block.json

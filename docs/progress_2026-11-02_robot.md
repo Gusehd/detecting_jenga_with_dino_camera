@@ -21,6 +21,23 @@ uv run jenga-task pick_dino --send --step    # 같은 자세, 느린 확인용 (
 - `jenga-autoscan run`은 이제 항상 `pick_dino_quick`, `place_dino_quick`을 쓴다. 옛 지그 자세를 쓰던 `pick_dino_fast`와 시험용 작업은 지웠다(백업 `config/tasks.json.bak_20261109_trials`, `config/arm_poses.json.bak_20261109_*`).
 - 옛 자세 `final_grasp_1`, `_1_1`, `_1_2`, `_1109`(+x 이동 전)는 파일에 남아 있지만 어떤 작업도 쓰지 않는다.
 
+## 2026-11-19 늦은 밤: 동료 PC 실기에서 탑 두 번 무너짐 → 원인과 수정 (다음 세션은 여기부터)
+**동료 PC 환경:** 도커 `developer@WRAI:/colcon_ws`, 저장소 `/colcon_ws/src/ros_pkgs/jenga_sw/jenga_vision_dino`, 빌드는 `colcon build --packages-select jenga_vision`(symlink 아님) → config와 captures는 `/colcon_ws/install/jenga_vision/share/jenga_vision/`. 빌드하면 config가 덮어써지므로 pull 전 `~/jenga_calib_backup/`에 백업하고 `scan_setup.json`, `hand_poses.json`만 되돌려 넣음. URDF md5는 우리와 같음(`3f2710f9…`). Python 3.12. 동료 손 위치: `/tmp/mirror_arm.py`(동료 스크립트, 오른팔을 동료 home으로).
+- **와르르 1:** `captures/`가 git에 없어 `.rigid.json`이 없음 → jig-full이 옛 `--sweep`(위·아래 층 보고 사이 보간, 층 사이 안 물러남)으로 빠짐. `e74abc0`: 저장값이 없어도 rigid_face로 모든 층.
+- **와르르 2:** 동료 PC 계획기가 −y를 손목 반대 자세(j5 −15, j6 +85, j7 133; 우리/11-18은 183, −76, 293)로 풂 → −y 끝 → `jig_ready_1118` 관절 이동 186°가 탑을 휩쓺. 모델 검사로 Dino가 탑 상자 안 −9~−12 mm.
+- **−y IK 멈춤:** 11-18 자세는 −y L14 왼쪽 블록에서 j6가 −97° 한계에 붙음(−96°). 동료 탑(+3.3 mm 깊음)에서 `IK failed on a straight move`. 손 굴리기로는 여유 6° 이하.
+- **지금 구조 (`a6e40ff`~`0bede12`):**
+  - `ROUTE`(autoscan.py): 면마다 처음·끝 관절 고정. −y는 손목 반대 자세(j6 여유 90°, 탑 55 mm), +x는 11-18 자세. 계획의 끝점을 이 값에서 다시 풀고, 90° 넘게 벗어나면 멈춤. 계획 캐시 키에 `ROUTE_VERSION`.
+  - `FACE_ROUTE`: −y는 `teammate_home`에서 들어가고 나옴(169~199 mm), +x는 `jig_ready_1118` 경유. run 순서: 동료 home → −y → 동료 home → jig_ready → +x → jig_ready → 동료 home. `TEAMMATE_HOME`(11-19 동료 왼팔 home을 y=0 거울, 부호 −+−+−+−)은 코드에 고정, `saved_poses()`로 이름 사용. home 이동 40°/s.
+  - `clearance.py`: 모든 관절 이동(`Mover.joint_move`, `go_home`)을 보내기 전 탑 모델 상자와 거리 검사(팔꿈치부터 링크 r 50 mm, 손바닥, 손가락, Dino), 5 mm 미만이면 안 보냄. 오늘 부순 이동을 잡음(테스트 있음).
+  - `ik(avoid_limits=True)`: 직선 이동 IK 실패 시 null space로 한계 회피 재시도(효과 작음).
+  - `config/rigid_seed.json`: 11-18 `.rigid.json`(회전 0). `<out>`에 없으면 이걸로 시작 → 첫 실행부터 빠름. `calib --write`는 `.rigid.json`을 치우지 않고 회전만 0.
+  - `calib`: 깊이 −45~+40 mm 쓸기, 회전 아무 각도(사진 회전, `dino.image_turn_deg`로 저장, `camera.DinoCamera`가 적용), 위아래는 1 mm 움직여 확인, 옆은 탑 끝 찾아 가운데 블록, 확인 2번(깊이 0.5 mm). `--no-predict` 기본으로 씀. 동료 PC 보정 기록: 09:55(옆 +3, 아래 +2.6, 축 −1.5, 회전 +2.8°), 10:17(옆 +3, 아래 +0.4, 축 +3.2, 회전 +0.5°).
+  - `run` 시작 시 쓰는 보정 날짜와 파일 출력.
+- **시뮬레이터 확인(도메인 77, 동료 home 출발, 깊이 +3.3 mm, 두 번):** −y 111°/114°(200 mm), 동료 home → jig_ready 154°(118 mm), +x 11°/26°, 1.4~1.6분. 전체 최소 13 mm(스캔 중).
+- **실기 미확인 / 남은 일:** (1) `0bede12`로 동료 PC에서 calib → run 두 번, `times:` 줄 확인(목표 1.5분). 사용자 보고: 새 버전으로 스캔은 됐고 home 이동도 됐으나 +x 위아래 탐색이 길고 전체가 느림 → 새로 쌓은 탑으로 calib 다시 + rigid seed로 해결 기대. (2) 회전 부호는 가짜 카메라 기준. (3) 사진 회전이 클 때(20° 넘게) 측정 정확도는 실사진 미확인. (4) stash에 "면에서 80 mm 떨어져서만 이동"(CLEAR_M) 수정이 있음(원인 아니어서 보류).
+- 사용자 지시: 실제 로봇 명령은 사람이 실행. 안전 검사 과잉은 싫어하지만 탑을 부수는 이동은 안 됨. 큰 움직임은 하드코딩 선호. 한국어로 답할 것.
+
 ## 2026-11-19 밤: `calib` 넓은 자동 탐색 (손 보정 없이, Dino가 아무렇게나 꽂혀도)
 - 실기(동료): `mount --teach` 약지 j1 72.6°(11-18 보정 100.5°). 사용자는 어제와 손 모양이 비슷하다고 봄. 첫마디 기준 예측은 61 mm라 한도(60)에 걸림. `--no-predict`로 옛 보정에서 시작하자 초점이 −20 mm 끝까지 올라감(화면은 더 가까이 가야 하는데 멀어짐). LED는 udev 권한이 없어 켜져 있었고, 동료가 고침.
 - 사용자 결정: 블록 보정은 사람이 하지 않음, 자동이어야 함. 손가락 각도에 기대지 말 것(매번 손으로 맞춤). Dino가 축 둘레로 70° 돌아 꽂힐 수도 있음. 안전 검사(출발 자세 검사)는 넣지 않음.

@@ -42,9 +42,9 @@ Compare it on one tower with a normal scan before trusting it:
 
     uv run jenga-autoscan compare captures/autoscan_NORMAL captures/autoscan_FAST
 
-run always picks and places the Dino with pick_dino_quick / place_dino_quick (robot-checked 2026-11-09,
-about 26 s each). --quick (DRAFT) also speeds up the joint moves to and from the face (see QUICK). --motion-only skips the
-layers (pick, go to the face, leave, place), to watch and time those moves in jenga-sim.
+run --pick / --place: the Dino out of and back into the holder with pick_dino_th / place_dino_th (pick_dino_quick /
+place_dino_quick, robot-checked 2026-11-09, about 26 s each, from and back to the teammate's home through home).
+--quick (DRAFT) also speeds up the joint moves to and from the face (see QUICK). --motion-only skips the layers (pick, go to the face, leave, place), to watch and time those moves in jenga-sim.
 
 Robot / camera:
   without --send  no ROS: a virtual arm (the joints are just set) and the fake camera
@@ -130,15 +130,29 @@ REFOCUS_MOVE_M = 0.001  # focus again after moving more than this up / down
 EDGE_SEARCH_STEP_MM = 2.5  # vertical search step for the edge (the image is ~10 mm high at dial 30)
 UNCERTAIN_PX = 1.0  # a layer's middle / side difference this small decides nothing (a repeat differs by 2 px)
 RUN_LAYERS = [2, 14]  # floors 3..15: not floors 1, 2 nor the top two (user, 2026-11-03)
-# run without options = the 2026-11-18 hand jig scan (Dino mounted once with `mount`, no pick / place);
-# --preset=none for the old defaults, --pick / --place for the 11-09 quick pick / place
-RUN_PRESET = "jig-full"
+# run without options: per Dino mode (DINO_MODES) the 2026-11-18 hand jig scan (Dino mounted once with `mount`, no
+# pick / place) or the 2026-11-20 picked Dino (pick, scan, place); --preset=none for the old defaults
 HOME_SPEED = 40.0  # deg/s of the last move of run to run_home (and of the first one to the scans' start); 20 was too slow (user)
 START_TOL_DEG = 2.0  # run: the arm this close to the scans' start pose needs no move there
 # The teammate's home for the right arm, where run ends (2026-11-19): the left arm at their home on the robot
 # (/joint_states xarm_left_joint1..7 = -8.0 1.0 24.0 44.0 -74.0 93.0 -43.3 deg), mirrored (MIRROR_SIGNS).
 # From jig_ready_1118 the move is up to 154 deg on joint 7 and 73 on joint 5.
 TEAMMATE_HOME = {"right": [0.139598, 0.017453, -0.41889, 0.767863, 1.291499, 1.623174, 0.755739]}
+
+
+def dino_mode(setup: dict | None = None) -> str:
+    """'jig' (Dino in the hand jig, mount + calib) or 'pick' (out of its holder for every run): dino.mode."""
+    setup = setup if setup is not None else json.loads(SETUP_FILE.read_text())
+    return setup["dino"].get("mode", "jig")
+
+
+def clearance_hand_q(setup: dict, arm: str) -> list[float]:
+    """The fingers for the tower clearance: as calibrated (jig), else the Dino's grasp pose (dino.hand_pose)."""
+    q = setup["dino"].get("calibration", {}).get(arm, {}).get("hand_q")
+    if not q and setup["dino"].get("hand_pose"):
+        from jenga_vision.hand_slider import POSES_FILE as HAND_POSES_FILE
+        q = json.loads(HAND_POSES_FILE.read_text())[arm[0]].get(setup["dino"]["hand_pose"])
+    return q or [0.0] * 20
 
 
 def saved_poses(arm: str) -> dict[str, list[float]]:
@@ -204,6 +218,13 @@ PRESETS["jig-full"] = {**PRESETS["v4"], "lazy_row": False, "fresh_tower": True, 
 # fast: also shoot an edge up to 115 px off the image centre instead of centring it (measured within +-120 px;
 # +-100 px changed 5 % of saved frames by more than 1 px, 2026-11-16), joint moves at 90 deg/s
 PRESETS["jig-fast"] = {**PRESETS["jig-full"], "lazy_row": True, "sweep_edge_px": 115.0, "approach_speed": 90.0}
+# 2026-11-20, no jig: the Dino picked out of its holder for every run and placed back (pick_dino_th / place_dino_th).
+# It sits differently after every pick, so the first block of each face is searched in full (--find-dino) and the
+# rows after it go as in jig-full; the second face starts with the first one's turn and scale (carry_dino).
+PRESETS["pick-full"] = {**PRESETS["jig-full"], "rigid_trust": False, "find_dino": True}
+# run without options, per Dino mode (dino.mode of scan_setup.json, `jenga_autoscan dino`)
+DINO_MODES = {"jig": {"preset": "jig-full", "out": "jig1118b", "pick": False},
+              "pick": {"preset": "pick-full", "out": "pick1120", "pick": True}}
 RIGID_SEED_FILE = CONFIG_DIR / "rigid_seed.json"  # in git: the start on a PC that has no RIGID_FILE yet
 RIGID_FILE = ".rigid.json"  # in --out: per face, the Dino turn, image scale, depth and edge height per layer
 RIGID_REFOCUS = 0.8  # --rigid: a row's first shot below this x the face's median focus value is refocused: about
@@ -1224,7 +1245,7 @@ class Scanner:
         if self.args.rigid and not self.args.motion_only:
             saved = json.loads((self.args.out / RIGID_FILE).read_text()).get(face) \
                 if (self.args.out / RIGID_FILE).exists() else None
-            if not saved and RIGID_SEED_FILE.exists():  # a new PC: the 11-18 robot scans' state, from git
+            if not saved and RIGID_SEED_FILE.exists() and not self.args.find_dino:  # a new PC: the 11-18 jig scans
                 saved = json.loads(RIGID_SEED_FILE.read_text()).get(face)
                 if saved:
                     print(f"   --rigid: nothing saved in {self.args.out} yet: {RIGID_SEED_FILE.name} (11-18 scans)")
@@ -1607,6 +1628,10 @@ class Scanner:
         st.height_known = True
         st.leveled = not self.args.soft_level  # the Dino may turn in a round jig: read the tilt again on the first
         # block (soft: on the image already there, no move); the arm-roll levelling keeps the saved roll
+        if self.args.find_dino and "turn_deg" in self.carry:  # the same pick: the first face's Dino is a start
+            saved = dict(saved, roll_deg=math.degrees(self.carry["roll"]), turn_deg=self.carry["turn_deg"],
+                         session="the face before")
+            st.mm_per_px = self.carry.get("mm_per_px") or st.mm_per_px
         self.roll = st.roll = math.radians(saved["roll_deg"])
         self.cam.turn_deg = saved["turn_deg"]
         print(f"   rigid Dino: as in {saved['session']} (image turned {saved['turn_deg']:+.1f} deg, "
@@ -1631,7 +1656,9 @@ class Scanner:
             elif i == 0:
                 self.mover.line_to(row[0].pose(d - RETREAT_M, down, self.roll))
                 st.depth_m, st.down_m = d, down
-                got = self.lock_on(row[0], st, wide=False)
+                if self.args.find_dino:  # picked again: where the Dino sits now, the full search on this block
+                    st.height_known = st.depth_known = False
+                got = self.lock_on(row[0], st, wide=self.args.find_dino)
                 if got is None:
                     raise ScanError(f"no focus on L{layer:02d} {row[0].screen} near the saved depth")
                 d, down = self.shoot_row(face, layer, row, *got, st)
@@ -2480,6 +2507,26 @@ def video_during_task(args):
 
 
 # --- everything in one go ------------------------------------------------------------
+def dino_main(args) -> None:
+    """dino [jig|pick]: scan_setup.json keeps each mode's Dino as dino_<mode>; `dino` is the one in use."""
+    setup = json.loads(SETUP_FILE.read_text())
+    now = dino_mode(setup)
+    if args.mode is None or args.mode == now:
+        cal = setup["dino"].get("calibration", {})
+        print(f"Dino mode {now}: run uses --preset={DINO_MODES[now]['preset']}, "
+              f"{'pick + place' if DINO_MODES[now]['pick'] else 'no pick / place'}, captures/{DINO_MODES[now]['out']}; "
+              "calibration " + ", ".join(f"{a} {c.get('date', '?')}" for a, c in cal.items()))
+        return
+    if f"dino_{args.mode}" not in setup:
+        raise SystemExit(f"no dino_{args.mode} in {SETUP_FILE}")
+    backup = SETUP_FILE.with_name(SETUP_FILE.name + time.strftime(".bak_%Y%m%d_%H%M%S"))
+    shutil.copy(SETUP_FILE, backup)
+    setup[f"dino_{now}"] = setup["dino"]
+    setup["dino"] = setup.pop(f"dino_{args.mode}")
+    SETUP_FILE.write_text(json.dumps(setup, indent=2) + "\n")
+    print(f"Dino mode {now} -> {args.mode} (backup {backup.name})")
+
+
 def run_main(args) -> None:
     """Pick the Dino, scan the faces, write the pull order, place the Dino. Any stop leaves
     the Dino in the hand and the arm where it is: placing it from there would not be safe."""
@@ -2494,7 +2541,7 @@ def run_main(args) -> None:
         t = time.time()
         args.dash.event(stage="pick" if name.startswith("pick") else "place")
         with video_during_task(args):
-            ok = task.run_task(f"{name}_quick", task_args)  # the robot-checked quick pick / place (2026-11-09)
+            ok = task.run_task(f"{name}_th", task_args)  # the quick pick / place (2026-11-09), from the teammate's home
         times[name] = time.time() - t
         return ok
 
@@ -2512,14 +2559,16 @@ def run_main(args) -> None:
     tower = Tower(setup["tower"], setup.get("aim", 0.5))
     layers = range(args.layers[0], args.layers[1] + 1)
     # run_faces.<face> in scan_setup.json overrides RUN_FACES (2026-11-18 hand jig: other IK seeds, no old via
-    # poses, back to home_1118), so the robot-tested v2 settings stay as they were
-    faces = [(f, {**s, **setup.get("run_faces", {}).get(f, {}), **FACE_ROUTE.get(f, {})})
+    # poses, back to home_1118), so the robot-tested v2 settings stay as they were; the picked Dino (dino.mode
+    # pick) starts from RUN_FACES' depth / height, found with that Dino on 2026-11-03
+    run_faces = setup.get("run_faces", {}) if dino_mode(setup) == "jig" else {}
+    faces = [(f, {**s, **run_faces.get(f, {}), **FACE_ROUTE.get(f, {})})
              for f, s in RUN_FACES if s["face"] in args.faces]
     args.planned_total = sum(len(r) for f, _ in faces for r in face_shots(tower, f, layers).values())
     args.dash.event(total=args.planned_total)
 
     cal = setup["dino"].get("calibration", {}).get(args.arm, {})
-    print(f"Dino calibration of {cal.get('date', '?')} ({cal.get('pose', '?')}), image turn "
+    print(f"Dino {dino_mode(setup)}, calibration of {cal.get('date', '?')} ({cal.get('pose', '?')}), image turn "
           f"{setup['dino'].get('image_turn_deg', 0.0):+.1f} deg: {SETUP_FILE}")
     if args.send:
         steps = ([] if args.no_pick else ["pick_dino"]) + [f for f, _ in faces] + ([] if args.no_place else ["place_dino"])
@@ -2586,7 +2635,7 @@ def run_main(args) -> None:
         if name:
             go_home(args, name, saved_poses(args.arm)[name])
         elif args.arm in TEAMMATE_HOME:
-            go_home(args, "the teammate's home", TEAMMATE_HOME[args.arm])
+            go_home(args, "the teammate's home", TEAMMATE_HOME[args.arm], tol_deg=START_TOL_DEG)  # place_dino_th ends there
     args.dash.event(stage="done", ended=time.time())
     report()
 
@@ -2595,7 +2644,7 @@ def home_clearance(args):
     from jenga_vision.clearance import Clearance
     setup = json.loads(SETUP_FILE.read_text())
     return Clearance(args.arm, Tower(setup["tower"], setup.get("aim", 0.5)), arm_tool(setup["dino"], args.arm),
-                     setup["dino"].get("calibration", {}).get(args.arm, {}).get("hand_q") or [0.0] * 20)
+                     clearance_hand_q(setup, args.arm))
 
 
 def go_home(args, name: str, target: list[float], tol_deg: float = 0.0) -> None:
@@ -2790,9 +2839,8 @@ def scan_main(args) -> tuple[Path | None, bool]:
     session.mkdir(parents=True, exist_ok=True)
     mover = Mover(args.arm, tool, args.send, poses[args.start], args.joint_speed, args.line_speed)
     from jenga_vision.clearance import Clearance
-    mover.clearance = Clearance(args.arm, tower, tool, setup["dino"].get("calibration", {}).get(args.arm, {}).get(
-        "hand_q") or [0.0] * 20)
-    if mover.ros is not None and not args.fake:  # jenga-sim's hand is not the real one
+    mover.clearance = Clearance(args.arm, tower, tool, clearance_hand_q(setup, args.arm))
+    if mover.ros is not None and not args.fake and dino_mode(setup) == "jig":  # jenga-sim's hand is not the real one
         time.sleep(0.3)  # the hand joints come in the same /joint_states
         worst = hand_check(setup, args.arm, dict(mover.ros.positions))
         if worst is not None and worst > HAND_STOP_DEG and args.fix_hand:
@@ -2908,7 +2956,7 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--port", type=int, default=DEFAULT_PORT, help="of the dashboard")
     p.add_argument("--fast", action="store_true", help="shorter waits and fewer focus samples: " + str(FAST))
     p.add_argument("--preset", default=None, help="named settings (write --preset=NAME): " + ", ".join(PRESETS)
-                   + f"; run uses {RUN_PRESET} without one, none = no preset")
+                   + "; run uses " + " / ".join(f"{m['preset']} ({k})" for k, m in DINO_MODES.items()) + " without one, none = no preset")
     p.add_argument("--settle-s", type=float, default=SETTLE_S,
                    help="wait after a move while searching (the shot itself always waits the full time)")
     p.add_argument("--focus-fall", type=float, default=0.88, help="a focus sample below this x the best has fallen")
@@ -2989,6 +3037,9 @@ def add_scan_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--rigid", action="store_true",
                    help="DRAFT: the Dino sits as in the last scan of the face (jig on the hand, or not picked again): "
                         f"its turn, scale, depths and heights from <out>/{RIGID_FILE}, one short focus search per face")
+    p.add_argument("--find-dino", action="store_true",
+                   help="--rigid: the first block of each face searched in full (focus, edge, tilt), as after a pick; "
+                        "the other rows as --rigid")
     p.add_argument("--rigid-trust", action="store_true",
                    help="DRAFT --rigid: no focus search on the first block either, only the check of every row")
     p.add_argument("--out-speed", type=float, default=None,
@@ -3052,16 +3103,15 @@ def main() -> None:
     r.add_argument("--out", type=Path, default=CAPTURES_DIR / "ranking.json")
     r.add_argument("--candidates", type=Path, help="teammate's candidates file, e.g. "
                    "$JENGA_STATE_DIR/jenga_pick_candidates.json (default: next to --out)")
-    u = sub.add_parser("run", help=f"scan -y and +x with the Dino in the hand jig (--preset={RUN_PRESET}), "
-                       "write the pull order")
+    u = sub.add_parser("run", help="scan -y and +x and write the pull order; the Dino picked first and placed after "
+                       "(dino mode pick) or in the hand jig (jig), see DINO_MODES")
     add_scan_options(u)
-    u.set_defaults(out=CAPTURES_DIR / RUN_OUT, no_pick=True, no_place=True)
     u.set_defaults(search_out_mm=10.0, search_in_mm=25.0, refocus_mm=8.0, limit_mm=8.0, max_in_mm=14.0, line_speed=15.0)
     u.set_defaults(joint_speed=None)  # per face in RUN_FACES
     u.add_argument("--faces", nargs="+", choices=[s["face"] for _, s in RUN_FACES],
                    default=[s["face"] for _, s in RUN_FACES], help="my = -y, px = +x, in the order of RUN_FACES")
-    u.add_argument("--pick", dest="no_pick", action="store_false", help="pick the Dino first (pick_dino_quick)")
-    u.add_argument("--place", dest="no_place", action="store_false", help="place the Dino at the end (place_dino_quick)")
+    u.add_argument("--pick", dest="no_pick", action="store_false", help="pick the Dino first (pick_dino_th)")
+    u.add_argument("--place", dest="no_place", action="store_false", help="place the Dino at the end (place_dino_th)")
     u.add_argument("--no-pick", action="store_true", help=argparse.SUPPRESS)  # the default now; kept for old launches
     u.add_argument("--no-place", action="store_true", help=argparse.SUPPRESS)
     u.add_argument("--home", help="saved arm pose to go to at the end (default: run_home of scan_setup.json if set, "
@@ -3079,6 +3129,9 @@ def main() -> None:
                    "finger prediction (the fingers look as at the calibration but read other angles)")
     k.add_argument("--hand", help="after mount --teach: the taught hand pose, from now on the mount pose (also the "
                    "finger angles of a dry run)")
+    dm = sub.add_parser("dino", help="which Dino scan_setup.json uses: jig (in the hand jig, mount + calib) or pick "
+                        "(out of its holder for every run); `dino pick` / `dino jig` switches (backup first)")
+    dm.add_argument("mode", nargs="?", choices=tuple(DINO_MODES))
     hp = sub.add_parser("home-pose", help="the teammate's home for this arm = the other arm now, mirrored "
                         "(read only); --write saves it and run goes there at the end")
     hp.add_argument("--arm", choices=("right", "left"), default="right", help="the arm that gets the home")
@@ -3121,8 +3174,10 @@ def main() -> None:
         p.set_defaults(**QUICK)
         u.set_defaults(**QUICK)
     names = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--preset=")]
+    mode = DINO_MODES[dino_mode()]
+    u.set_defaults(out=CAPTURES_DIR / mode["out"], no_pick=not mode["pick"], no_place=not mode["pick"])
     if not names and sys.argv[1:2] == ["run"]:
-        u.set_defaults(**{**FAST, **QUICK, **PRESETS[RUN_PRESET]})
+        u.set_defaults(**{**FAST, **QUICK, **PRESETS[mode["preset"]]})
     for name in names:
         if name == "none":
             continue
@@ -3131,6 +3186,11 @@ def main() -> None:
         for o in (p, u):
             o.set_defaults(**{**FAST, **QUICK, **PRESETS[name]})
     args = parser.parse_args()
+    if args.cmd in ("mount", "calib") and dino_mode() != "jig":
+        raise SystemExit(f"{args.cmd} is for the Dino in the hand jig; the Dino is picked now (dino.mode "
+                         f"'{dino_mode()}' in {SETUP_FILE}; `jenga_autoscan dino jig` switches back)")
+    if args.cmd == "dino":
+        return dino_main(args)
     if args.cmd == "mount":
         from jenga_vision.mount import mount_main
         return mount_main(args)

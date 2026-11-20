@@ -137,5 +137,24 @@
       {"arm": "before_grasp", "speed": 60, "slow_start_deg": 15, "slow_speed": 10},
       {"arm": "home", "speed": 60}
     ]
+  },
+  "pick_dino_th": {
+    "note": "run (2026-11-20, no hand jig): pick_dino_quick from the teammate's home (left arm mirrored, autoscan TEAMMATE_HOME) through home, ends at home (-y starts from there: j5 205 deg, 81 mm from the tower box in the model). teammate_home -> before_grasp straight turns j5 247 deg; teammate_home -> home 100 deg, 241 mm",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {"arm": "teammate_home", "speed": 60},
+      {"task": "pick_dino_quick"}
+    ]
+  },
+  "place_dino_th": {
+    "note": "run (2026-11-20, no hand jig): place_dino_quick from and back to the teammate's home through home (jig_ready_1118 -> before_grasp straight: Dino 16 mm into the tower box in the model)",
+    "arm": "right",
+    "hand": "r",
+    "steps": [
+      {"arm": "teammate_home", "speed": 45},
+      {"task": "place_dino_quick"},
+      {"arm": "teammate_home", "speed": 60}
+    ]
   }
 }

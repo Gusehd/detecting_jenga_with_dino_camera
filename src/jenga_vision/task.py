@@ -176,6 +176,9 @@ class Runner:
         self.task, self.args = task, args
         self.moved_s = 0.0  # planned arm + finger time
         self.arm_poses = load_json(arm_slider.POSES_FILE).get(task["arm"], {})
+        from jenga_vision.autoscan import TEAMMATE_HOME  # the teammate's home is kept in the code, not taught
+        if task["arm"] in TEAMMATE_HOME:
+            self.arm_poses.setdefault("teammate_home", TEAMMATE_HOME[task["arm"]])
         self.hand_poses = load_json(hand_slider.POSES_FILE).get(task["hand"], {})
         self.sequences = load_json(hand_slider.SEQUENCES_FILE)
         self.routes = arm_route.load_all().get(task["arm"], {})

@@ -36,6 +36,75 @@
     "tool_hand": {
       "right": [
         [
+          -0.260726,
+          0.018766,
+          -0.96523,
+          -0.113452
+        ],
+        [
+          -0.039033,
+          0.998789,
+          0.029961,
+          -0.02725
+        ],
+        [
+          0.964623,
+          0.045488,
+          -0.259678,
+          0.07796
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "tip_to_focus_m": 0.025,
+    "calibration": {
+      "right": {
+        "pose": "cali_way_3",
+        "q": [
+          0.07126,
+          0.63395,
+          0.55729,
+          0.86867,
+          3.17105,
+          1.22131,
+          2.8325
+        ],
+        "face": "+x",
+        "layer": 1,
+        "slot": 0,
+        "aim": "top edge",
+        "date": "2026-10-30 14:41"
+      }
+    },
+    "_tool_note": "tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, z = optical axis, y = image down). A missing arm uses the other one mirrored. tip_to_focus_m: Dino tip behind the focus point (measured at dial 30, only for the sim clearance).",
+    "mode": "pick",
+    "hand_pose": "grasp_middle_1",
+    "_mode_note": "2026-11-20: the Dino picked out of its holder for every run (pick_dino_th / place_dino_th), as before the hand jig: tool and calibration of 2026-10-30 (config/scan_setup.json.bak_20261118_before_jig). hand_pose: the grasp, only for the tower clearance. The jig's Dino is kept as dino_jig (`jenga_autoscan dino jig` switches back)."
+  },
+  "dino_jig": {
+    "axis_hand": [
+      -0.017,
+      -0.961,
+      -0.275
+    ],
+    "tip_hand": [
+      -0.009,
+      -0.12,
+      0.125
+    ],
+    "roll_deg": {
+      "right": 270.0,
+      "left": 90.0
+    },
+    "standoff_m": 0.0,
+    "tool_hand": {
+      "right": [
+        [
           -0.00566,
           -0.055197,
           -0.998459,
@@ -108,7 +177,8 @@
     },
     "_tool_note": "tool_hand: Dino frame in the hand frame from jenga-calib (origin = point in focus, z = optical axis, y = image down). A missing arm uses the other one mirrored. tip_to_focus_m: Dino tip behind the focus point (measured at dial 30, only for the sim clearance).",
     "image_upside_down": true,
-    "_upside_down_note": "2026-11-18 hand jig: the Dino sits turned 180 deg, camera.DinoCamera turns every frame back"
+    "_upside_down_note": "2026-11-18 hand jig: the Dino sits turned 180 deg, camera.DinoCamera turns every frame back",
+    "mode": "jig"
   },
   "faces": {
     "right": [
